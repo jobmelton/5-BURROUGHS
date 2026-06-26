@@ -7,7 +7,7 @@
 /**
  * @typedef {'vacantLot'|'abandonedBuilding'|'abandonedApartment'|'abandonedCondo'
  *  |'abandonedStore'|'abandonedHotel'|'abandonedCasino'|'anchorSlot'
- *  |'career'|'jail'|'freeParking'|'payday'} SpaceType
+ *  |'career'|'jail'|'freeParking'|'payday'|'tax'} SpaceType
  */
 
 /**
@@ -20,6 +20,8 @@
  * @property {?string} ownerId      Player/bot id, or null if unowned
  * @property {string} [name]        Player-given name (filtered) once owned
  * @property {number} buildLevel    0 = empty/standing, up to maxBuildLevel
+ * @property {?Object} partnership  { partnerId, ownerSplit, partnerSplit } or null
+ * @property {?string} mobOwnerId  if property was seized by mob via foreclosure
  * @property {?('football'|'basketball'|'baseball'|'casino')} anchorType
  * @property {number} anchorLevel   0 if not expanded, up to anchors.expandLevels
  * @property {number} haloBonus     Current cumulative halo bump (0..stackCap)
@@ -49,10 +51,12 @@
 /**
  * @typedef {Object} Debt
  * @property {string} id
- * @property {string} bankerId
+ * @property {string} lenderId       player id of lender (Banker or Boss)
+ * @property {'bank'|'mob'} loanType  bank loans foreclose to unowned; mob to Boss
  * @property {number} principalRemaining
- * @property {number} paymentPerPayday
- * @property {number} bankerFee        fraction to banker; rest retires principal
+ * @property {number} rate            negotiated interest rate (fraction)
+ * @property {?number} spaceIndex     property this loan is tied to (if any)
+ * @property {number} paymentPerGo    amount due each time borrower passes GO
  */
 
 /**
@@ -61,6 +65,8 @@
  * @property {?string} ownedByBossId      non-null => mob owns this player's income
  * @property {boolean} jailed
  * @property {number}  jailTurns
+ * @property {boolean} hasMobDebt         true => mob is only lender option
+ * @property {boolean} roleDirty          true => role flipped via mob loan
  */
 
 /**
@@ -71,7 +77,8 @@
  * @property {number} cash
  * @property {number} position          space index
  * @property {string[]} propertyIds     spaces owned
- * @property {CareerCard[]} roles       career cards held
+ * @property {CareerCard[]} roles       career cards held (active)
+ * @property {CareerCard[]} dormantRoles  career cards held but inactive
  * @property {ActionCard[]} hand        action cards held
  * @property {Debt[]} debts
  * @property {StatusEffects} status
@@ -94,6 +101,9 @@
  * @property {number} seasonEndsAt             timestamp
  * @property {number} lastBotTickAt           timestamp
  * @property {'mob'|'law'|'ongoing'} status
+ * @property {Object[]} notifications          notification queue
+ * @property {Object} strikeBoroughs           { [borough]: turnsLeft }
+ * @property {number} _turnNumber              global turn counter
  */
 
 export const ROLE_TYPES = [

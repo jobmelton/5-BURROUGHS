@@ -157,6 +157,40 @@ export const CONFIG = {
     paymentFractionPerPayday: 0.20, // each payday payment = 20% of mortgage value
   },
 
+  // ---- Notifications -------------------------------------------------------
+  notifications: {
+    defaultExpiryTurns: 3,       // notifications expire after N turns if no response
+    historyLimit: 100,           // keep last N resolved notifications for history
+    crossBoroughContactFee: 50,  // fee to contact a Boss/Capo in another borough
+  },
+
+  // ---- Lending ------------------------------------------------------------
+  lending: {
+    // Bank loans (from Banker role holder)
+    bankForeclosureToUnowned: true,  // bank foreclosure = property goes unowned
+    // Mob loans (from Boss)
+    mobCreatesMoneyFromNothing: true, // Boss can loan money they don't have
+    mobForeclosureToMob: true,       // mob foreclosure = property becomes Boss's
+    mobDebtLockout: true,            // while in mob debt, mob is your only lender
+  },
+
+  // ---- Partnerships -------------------------------------------------------
+  partnerships: {
+    allowedSplits: [25, 50, 75],     // available partnership split percentages
+    distressedBuyoutAtDebt: true,    // can buy out distressed partner for just their debt
+  },
+
+  // ---- Property landing ---------------------------------------------------
+  propertyLanding: {
+    politicianPurchaseTax: 0.01,     // 1% tax on all land purchases to Politician
+    politicianAuctionTax: 0.05,      // 5% transfer tax on auction/flip sales
+  },
+
+  // ---- Dormant cards ------------------------------------------------------
+  dormant: {
+    seizeableRoles: ['Boss', 'Capo'], // these roles can be seized from dormant holders
+  },
+
   // ---- Async / bots --------------------------------------------------------
   bots: {
     tickHours: 4,              // bots act on a server tick every N hours
