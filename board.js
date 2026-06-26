@@ -15,7 +15,7 @@ const BOROUGH_LAYOUT = [
   'career',                                   // the per-borough Career Space
   'vacantLot', 'abandonedStore', 'vacantLot',
   'abandonedApartment', 'anchorSlot',         // the per-borough anchor slot
-  'vacantLot', 'abandonedCondo', 'vacantLot',
+  'vacantLot', 'abandonedCondo', 'jail',
 ];
 
 /** base price for a space given its borough and its index within that borough */

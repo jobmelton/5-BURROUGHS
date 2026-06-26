@@ -2,6 +2,7 @@
 // 5 BOROUGHS ON THE TAKE — turns.js
 // Single-player turn loop: roll dice, move around the board (with payday on
 // wrap), resolve the landed space (buy / pay rent / draw career card).
+// Handles jail: skip turns while jailed, countdown, doubles = early release.
 // ===========================================================================
 import { CONFIG } from './gameConfig.js';
 import { resolveRent } from './economy.js';
@@ -14,19 +15,51 @@ export function rollDice() {
   return { d1, d2, total: d1 + d2, doubles: d1 === d2 };
 }
 
+/** Send a player to jail (used by RICO, landing on jail space, etc.). */
+export function sendToJail(player) {
+  player.status.jailed = true;
+  player.status.jailTurns = CONFIG.jail.maxTurns;
+}
+
 /**
  * Execute one full turn for a player:
+ *   0. If jailed: roll for doubles (escape) or count down; skip movement
  *   1. Roll two dice
  *   2. Move (wrap + payday if passing start)
- *   3. Resolve the space (buy / rent / career draw)
- * Returns { roll, description } — description is a human-readable log line.
+ *   3. Resolve the space (buy / rent / career draw / jail)
+ * Returns { roll, description }.
  */
 export function takeTurn(state, playerId) {
   const player = state.players[playerId];
   const roll = rollDice();
-  const boardLen = state.board.length;
+  const parts = [];
+
+  let rollTag = `rolled ${roll.d1}+${roll.d2}=${roll.total}`;
+  if (roll.doubles) rollTag += ' (doubles!)';
+  parts.push(`${player.name} ${rollTag}`);
+
+  // --- jail check ---
+  if (player.status.jailed) {
+    if (CONFIG.jail.doublesEscape && roll.doubles) {
+      player.status.jailed = false;
+      player.status.jailTurns = 0;
+      parts.push('Doubles! Released from jail');
+      // freed player gets a normal turn with this roll — fall through
+    } else {
+      player.status.jailTurns--;
+      if (player.status.jailTurns <= 0) {
+        player.status.jailed = false;
+        player.status.jailTurns = 0;
+        parts.push('Jail time served — released');
+      } else {
+        parts.push(`Still in jail (${player.status.jailTurns} turn(s) left)`);
+        return { roll, description: parts.join(' → ') };
+      }
+    }
+  }
 
   // --- move ---
+  const boardLen = state.board.length;
   const oldPos = player.position;
   const newPos = (oldPos + roll.total) % boardLen;
   const passedStart = oldPos + roll.total >= boardLen;
@@ -37,12 +70,6 @@ export function takeTurn(state, playerId) {
   player.position = newPos;
 
   const space = state.board[newPos];
-  const parts = [];
-
-  // roll summary
-  let rollTag = `rolled ${roll.d1}+${roll.d2}=${roll.total}`;
-  if (roll.doubles) rollTag += ' (doubles!)';
-  parts.push(`${player.name} ${rollTag}`);
   parts.push(`moved to #${newPos} ${space.type} (borough ${space.borough})`);
   if (passedStart) parts.push(`Payday! +$${CONFIG.money.paydayBase}`);
 
@@ -58,7 +85,10 @@ export function takeTurn(state, playerId) {
     space.type === 'anchorSlot' ||
     space.type.startsWith('abandoned');
 
-  if (isProperty && space.ownerId === null) {
+  if (space.type === 'jail') {
+    sendToJail(player);
+    parts.push(`Busted! Sent to jail for ${CONFIG.jail.maxTurns} turns`);
+  } else if (isProperty && space.ownerId === null) {
     // unowned buyable space
     if (player.cash >= space.basePrice) {
       player.cash -= space.basePrice;

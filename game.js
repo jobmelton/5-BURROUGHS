@@ -8,7 +8,7 @@ import { buildBoard } from './board.js';
 import { buildCareerPool, buildActionPool } from './decks.js';
 import { desiredBotCount, onHumanJoin, dissolvePlayer } from './bots.js';
 import { contiguousOwnedRun, canBuild, buildCost, effectiveRent, resolveRent, catchUpStake } from './economy.js';
-import { takeTurn } from './turns.js';
+import { takeTurn, sendToJail } from './turns.js';
 
 let _id = 0;
 const newId = (p) => `${p}-${++_id}`;
@@ -136,6 +136,41 @@ function turnLoopTest() {
     + `properties: ${human.propertyIds.length}, career cards: ${human.roles.length}`);
 }
 
+// ---------------------------------------------------------------------------
+// JAIL TEST — sends a player to jail and plays turns until they're out.
+// ---------------------------------------------------------------------------
+function jailTest() {
+  const s = newGame();
+  const human = newPlayer('Tony');
+  s.players[human.id] = human;
+
+  console.log('\n=== JAIL TEST ===');
+  sendToJail(human);
+  console.log(`Tony sent to jail (jailTurns=${human.status.jailTurns}, maxTurns=${CONFIG.jail.maxTurns})`);
+
+  let t = 0;
+  while (human.status.jailed || t === 0) {
+    t++;
+    const { description } = takeTurn(s, human.id);
+    console.log(`Turn ${t}: ${description}`);
+    if (t > CONFIG.jail.maxTurns + 1) break; // safety
+  }
+  console.log(`Released after ${t} turn(s). jailed=${human.status.jailed}`);
+
+  // verify landing on jail space sends player to jail
+  const jailSpace = s.board.find(sp => sp.type === 'jail');
+  console.log(`\nJail space exists on board at #${jailSpace.index} (borough ${jailSpace.borough})`);
+  human.status.jailed = false;
+  human.status.jailTurns = 0;
+  human.position = jailSpace.index - 2; // position so we could land on it
+  // manually place to test
+  human.position = jailSpace.index;
+  // simulate what takeTurn does when landing on jail
+  sendToJail(human);
+  console.log(`Manually landed on jail → jailed=${human.status.jailed}, turns=${human.status.jailTurns}`);
+}
+
 // run if invoked directly
 smokeTest();
 turnLoopTest();
+jailTest();

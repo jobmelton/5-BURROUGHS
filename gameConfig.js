@@ -112,6 +112,13 @@ export const CONFIG = {
     },
   },
 
+  // ---- Jail ----------------------------------------------------------------
+  jail: {
+    maxTurns: 3,                   // auto-release after this many skipped turns
+    doublesEscape: true,           // rolling doubles while jailed = early release
+    bailCost: 200,                 // pay this to get out immediately (optional)
+  },
+
   // ---- Casino dice ---------------------------------------------------------
   casino: {
     // on landing on a casino, roll two dice:
