@@ -31,7 +31,7 @@ File: `actions.js`, test: `testActions.js`.
 - Building raises effective rent for neighbors within radius.
 - Test: build on a lot, verify neighbor halo bumps and cap.
 
-## M6 — Season & leaderboard
+## M6 — Season & leaderboard ✅
 - Season timer counts down over configured days.
 - At season end: rank players by net worth, pay out bounty pool.
 - Godfather tribute collected each payday; half goes to bounty pool.

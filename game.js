@@ -301,10 +301,13 @@ function seasonTest() {
   console.log(`\nAfter reset: Vito cash=$${p1.cash}, properties=${p1.propertyIds.length}, lot #${lot.index} owner=${lot.ownerId}`);
 }
 
-// run if invoked directly
-smokeTest();
-turnLoopTest();
-jailTest();
-mortgageTest();
-haloTest();
-seasonTest();
+// run tests only when this file is the entry point
+const isMain = process.argv[1]?.replace(/\\/g, '/').endsWith('game.js');
+if (isMain) {
+  smokeTest();
+  turnLoopTest();
+  jailTest();
+  mortgageTest();
+  haloTest();
+  seasonTest();
+}
