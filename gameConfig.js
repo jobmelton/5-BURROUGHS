@@ -110,6 +110,24 @@ export const CONFIG = {
     informant: {
       grantProtectionTurns: 5,     // how many turns the freed player stays protected
     },
+    expose: {
+      fine: 100,                     // dirty official pays this or loses the role
+    },
+    accountant: {
+      skimFraction: 0.15,            // skim 15% of target's cash to tax pool
+    },
+    audit: {
+      taxPerProperty: 50,            // back-tax per owned property
+    },
+    election: {
+      // no tunables beyond the mechanic: replace a politician in a borough
+    },
+    strike: {
+      durationTurns: 3,             // building shut down in target borough for N turns
+    },
+    jackpot: {
+      // collect the entire free parking pool — no tunables
+    },
   },
 
   // ---- Jail ----------------------------------------------------------------

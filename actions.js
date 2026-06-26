@@ -1,6 +1,6 @@
 // ===========================================================================
 // 5 BOROUGHS ON THE TAKE — actions.js
-// Resolves action-card effects: Hit, RICO, Informant, Pardon.
+// Resolves all action-card effects.
 // Each function mutates game state and returns { ok, description } so the
 // caller can log / display what happened.
 // ===========================================================================
@@ -158,5 +158,177 @@ export function playPardon(state, playerId, pardonedPlayerId) {
   return {
     ok: true,
     description: `Pardon! ${player.name} freed ${pardoned.name} from jail.`,
+  };
+}
+
+// ---- Expose ----------------------------------------------------------------
+/**
+ * Expose a dirty official (Cop/Politician/Judge). They must pay the fine
+ * to stay clean, or lose the role card back to the career pool.
+ */
+export function playExpose(state, playerId, targetId) {
+  const player = state.players[playerId];
+  const target = state.players[targetId];
+  if (!player || !target) return { ok: false, description: 'Invalid player id.' };
+  if (playerId === targetId) return { ok: false, description: 'Cannot Expose yourself.' };
+
+  // find a dirty (non-clean) official held by the target
+  const dirtyCard = target.roles.find(r => CLEAN_ROLES.includes(r.role) && !r.clean);
+  if (!dirtyCard) {
+    return { ok: false, description: `${target.name} has no dirty officials to expose.` };
+  }
+
+  const fine = actions.expose.fine;
+  if (target.cash >= fine) {
+    target.cash -= fine;
+    dirtyCard.clean = true; // paid to stay clean
+    return {
+      ok: true,
+      description: `Expose! ${target.name}'s dirty ${dirtyCard.role} (b${dirtyCard.borough}) paid $${fine} fine to stay clean.`,
+    };
+  } else {
+    // can't afford fine — lose the role
+    const idx = target.roles.indexOf(dirtyCard);
+    target.roles.splice(idx, 1);
+    dirtyCard.ownedById = null;
+    dirtyCard.clean = true;
+    state.careerPool.push(dirtyCard);
+    return {
+      ok: true,
+      description: `Expose! ${target.name} couldn't pay $${fine} fine — lost ${dirtyCard.role} (b${dirtyCard.borough}) back to the pool.`,
+    };
+  }
+}
+
+// ---- Accountant ------------------------------------------------------------
+/**
+ * Audit a player's hidden income: skim a fraction of their cash to the tax pool.
+ */
+export function playAccountant(state, playerId, targetId) {
+  const player = state.players[playerId];
+  const target = state.players[targetId];
+  if (!player || !target) return { ok: false, description: 'Invalid player id.' };
+  if (playerId === targetId) return { ok: false, description: 'Cannot audit yourself.' };
+
+  const skim = Math.round(target.cash * actions.accountant.skimFraction);
+  if (skim <= 0) {
+    return { ok: false, description: `${target.name} has no cash to skim.` };
+  }
+
+  target.cash -= skim;
+  state.taxPool += skim;
+  return {
+    ok: true,
+    description: `Accountant! Skimmed $${skim} (${Math.round(actions.accountant.skimFraction * 100)}%) from ${target.name} to the tax pool. Tax pool now $${state.taxPool}.`,
+  };
+}
+
+// ---- Audit -----------------------------------------------------------------
+/**
+ * Force a player to pay back-taxes on all their properties.
+ */
+export function playAudit(state, playerId, targetId) {
+  const player = state.players[playerId];
+  const target = state.players[targetId];
+  if (!player || !target) return { ok: false, description: 'Invalid player id.' };
+  if (playerId === targetId) return { ok: false, description: 'Cannot audit yourself.' };
+
+  const propCount = target.propertyIds.length;
+  if (propCount === 0) {
+    return { ok: false, description: `${target.name} owns no properties to tax.` };
+  }
+
+  const tax = propCount * actions.audit.taxPerProperty;
+  const paid = Math.min(tax, target.cash);
+  target.cash -= paid;
+  state.taxPool += paid;
+
+  return {
+    ok: true,
+    description: `Audit! ${target.name} taxed $${actions.audit.taxPerProperty} x ${propCount} properties = $${tax}. Paid $${paid} to tax pool (cash $${target.cash}).`,
+  };
+}
+
+// ---- Election --------------------------------------------------------------
+/**
+ * Replace a Politician in a borough. The old holder loses the card;
+ * the player who plays Election takes it.
+ */
+export function playElection(state, playerId, borough) {
+  const player = state.players[playerId];
+  if (!player) return { ok: false, description: 'Invalid player id.' };
+  if (borough < 1 || borough > CONFIG.careers.boroughs) {
+    return { ok: false, description: `Invalid borough: ${borough}.` };
+  }
+
+  // find who currently holds the Politician for this borough
+  for (const other of Object.values(state.players)) {
+    const cardIdx = other.roles.findIndex(r => r.role === 'Politician' && r.borough === borough);
+    if (cardIdx !== -1) {
+      const card = other.roles.splice(cardIdx, 1)[0];
+      card.ownedById = player.id;
+      player.roles.push(card);
+      return {
+        ok: true,
+        description: `Election! ${player.name} took the borough ${borough} Politician from ${other.name}.`,
+      };
+    }
+  }
+
+  // check the career pool
+  const poolIdx = state.careerPool.findIndex(r => r.role === 'Politician' && r.borough === borough);
+  if (poolIdx !== -1) {
+    const card = state.careerPool.splice(poolIdx, 1)[0];
+    card.ownedById = player.id;
+    player.roles.push(card);
+    return {
+      ok: true,
+      description: `Election! ${player.name} claimed the unclaimed borough ${borough} Politician.`,
+    };
+  }
+
+  return { ok: false, description: `No Politician card found for borough ${borough}.` };
+}
+
+// ---- Strike ----------------------------------------------------------------
+/**
+ * Shut down building in a target borough for N turns.
+ * Tracked on the game state as strikeBoroughs: { [borough]: turnsLeft }.
+ */
+export function playStrike(state, playerId, borough) {
+  const player = state.players[playerId];
+  if (!player) return { ok: false, description: 'Invalid player id.' };
+  if (borough < 1 || borough > CONFIG.careers.boroughs) {
+    return { ok: false, description: `Invalid borough: ${borough}.` };
+  }
+
+  if (!state.strikeBoroughs) state.strikeBoroughs = {};
+  state.strikeBoroughs[borough] = actions.strike.durationTurns;
+
+  return {
+    ok: true,
+    description: `Strike! Building shut down in borough ${borough} for ${actions.strike.durationTurns} turns.`,
+  };
+}
+
+// ---- Jackpot ---------------------------------------------------------------
+/**
+ * Collect the entire free parking pool.
+ */
+export function playJackpot(state, playerId) {
+  const player = state.players[playerId];
+  if (!player) return { ok: false, description: 'Invalid player id.' };
+
+  const pool = state.freeParkingPool;
+  if (pool <= 0) {
+    return { ok: false, description: 'Free parking pool is empty — no jackpot.' };
+  }
+
+  player.cash += pool;
+  state.freeParkingPool = 0;
+
+  return {
+    ok: true,
+    description: `Jackpot! ${player.name} collected $${pool} from the free parking pool!`,
   };
 }
