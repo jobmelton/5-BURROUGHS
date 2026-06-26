@@ -1,0 +1,10 @@
+{
+  "name": "five-boroughs-on-the-take",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Mob-themed async board game engine — 5 boroughs, dice-and-track, career cards, action cards.",
+  "scripts": {
+    "test": "node game.js && node testActions.js",
+    "play": "node play.js"
+  }
+}
