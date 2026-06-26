@@ -7,7 +7,7 @@ import { CONFIG } from './gameConfig.js';
 import { buildBoard } from './board.js';
 import { buildCareerPool, buildActionPool } from './decks.js';
 import { desiredBotCount, onHumanJoin, dissolvePlayer } from './bots.js';
-import { contiguousOwnedRun, canBuild, buildCost, effectiveRent, resolveRent, catchUpStake } from './economy.js';
+import { contiguousOwnedRun, canBuild, buildCost, buildOnSpace, effectiveRent, resolveRent, catchUpStake } from './economy.js';
 import { takeTurn, sendToJail } from './turns.js';
 import { mortgageProperty, payOffMortgage, processPaydayDebts, isMortgaged } from './mortgages.js';
 
@@ -217,8 +217,53 @@ function mortgageTest() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// HALO TEST — build on a lot, verify neighbor halo bumps and cap.
+// ---------------------------------------------------------------------------
+function haloTest() {
+  const s = newGame();
+  const player = newPlayer('Gino');
+  s.players[player.id] = player;
+  player.cash = 50000; // plenty of cash for building
+
+  console.log('\n=== HALO TEST ===');
+
+  // buy 3 contiguous lots in borough 1 (indices 1, 2, 3 are vacantLot, vacantLot, abandonedBuilding)
+  const targets = [1, 2, 3];
+  for (const idx of targets) {
+    const sp = s.board[idx];
+    sp.ownerId = player.id;
+    player.propertyIds.push(idx);
+  }
+  console.log(`Gino owns lots #${targets.join(', ')} (borough 1)`);
+
+  // show neighbor halos before build
+  console.log(`Before build: halo on #1=${s.board[1].haloBonus}, #2=${s.board[2].haloBonus}, #3=${s.board[3].haloBonus}`);
+
+  // build on lot #2 (middle)
+  const b1 = buildOnSpace(s, player.id, 2);
+  console.log(`Build 1: ${b1.description}`);
+  console.log(`  Halos: #1=${s.board[1].haloBonus}, #2=${s.board[2].haloBonus}, #3=${s.board[3].haloBonus}`);
+
+  // build again on lot #2
+  const b2 = buildOnSpace(s, player.id, 2);
+  console.log(`Build 2: ${b2.description}`);
+  console.log(`  Halos: #1=${s.board[1].haloBonus}, #2=${s.board[2].haloBonus}, #3=${s.board[3].haloBonus}`);
+
+  // show effective rent change
+  console.log(`  Rent on #1 (with halo): $${effectiveRent(s.board[1])} (base rent $${s.board[1].baseRent})`);
+  console.log(`  Rent on #2 (built lv${s.board[2].buildLevel}): $${effectiveRent(s.board[2])}`);
+
+  // build many times to test cap
+  for (let i = 0; i < 10; i++) {
+    buildOnSpace(s, player.id, 2);
+  }
+  console.log(`After max builds: halo on #1=${s.board[1].haloBonus} (cap=${CONFIG.build.halo.stackCap})`);
+}
+
 // run if invoked directly
 smokeTest();
 turnLoopTest();
 jailTest();
 mortgageTest();
+haloTest();

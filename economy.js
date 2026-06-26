@@ -45,6 +45,56 @@ export function buildCost(space) {
   return { build: base, demo, total: base + demo };
 }
 
+/**
+ * Build the next level on a space: check contiguity, deduct cost, bump level,
+ * and radiate the value halo to neighbors.
+ * Returns { ok, description }.
+ */
+export function buildOnSpace(state, playerId, index) {
+  const check = canBuild(state, playerId, index);
+  if (!check.ok) return { ok: false, description: `Can't build: ${check.reason}` };
+
+  const space = state.board[index];
+  const player = state.players[playerId];
+  const cost = buildCost(space);
+  if (player.cash < cost.total) {
+    return { ok: false, description: `Can't afford build: $${cost.total} (cash $${player.cash})` };
+  }
+
+  player.cash -= cost.total;
+  space.buildLevel++;
+  applyHalo(state, index);
+
+  return {
+    ok: true,
+    description: `Built level ${space.buildLevel} on #${index} (b${space.borough}) for $${cost.total}. Cash $${player.cash}.`,
+  };
+}
+
+/**
+ * Radiate the value halo from a built space to its neighbors within radius.
+ * Halo strength decays per space of distance; total bonus capped per config.
+ */
+export function applyHalo(state, sourceIndex) {
+  const source = state.board[sourceIndex];
+  const { radius, decayPerSpace, stackCap } = build.halo;
+  // halo strength based on build level (use generic per-level strength)
+  const baseStrength = 0.05 * source.buildLevel; // 5% per build level
+
+  for (let dist = 1; dist <= radius; dist++) {
+    const strength = baseStrength * Math.pow(1 - decayPerSpace, dist - 1);
+    if (strength <= 0) break;
+
+    for (const neighbor of [sourceIndex - dist, sourceIndex + dist]) {
+      if (neighbor < 0 || neighbor >= state.board.length) continue;
+      if (state.board[neighbor].borough !== source.borough) continue;
+      const sp = state.board[neighbor];
+      sp.haloBonus = Math.min(stackCap, sp.haloBonus + strength);
+      sp.haloBonus = Math.round(sp.haloBonus * 1000) / 1000; // avoid float drift
+    }
+  }
+}
+
 /** Effective rent for a space, applying build level and halo bonus. */
 export function effectiveRent(space) {
   const levelMult = 1 + space.buildLevel; // each level adds 1x base rent
