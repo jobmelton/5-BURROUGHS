@@ -4,7 +4,9 @@
 // alliance-collapse notices, and the double-setback rule.
 // ===========================================================================
 import { CONFIG } from './gameConfig.js';
-import { catchUpStake } from './economy.js';
+import { catchUpStake, canBuild, buildOnSpace, effectiveRent, placeAnchor } from './economy.js';
+import { mortgageProperty } from './mortgages.js';
+import { playHit, playRICO } from './actions.js';
 
 const { seats, bots } = CONFIG;
 
@@ -45,6 +47,75 @@ export function onHumanJoin(state, human) {
 
   notices.push({ to: human.id, msg: `You've entered the city with $${human.cash}. The board is live — make your move.` });
   return notices;
+}
+
+/**
+ * Bot AI: make strategic decisions after taking a turn.
+ * Called after the bot's turn resolves. Evaluates: build, mortgage, play action cards.
+ */
+export function botAI(state, botId) {
+  const bot = state.players[botId];
+  if (!bot || !bot.isBot) return [];
+  const actions = [];
+
+  // --- Build: build on any owned property where contiguity allows ---
+  for (const idx of [...bot.propertyIds]) {
+    const space = state.board[idx];
+    if (space.buildLevel < 0) continue; // mortgaged
+    const check = canBuild(state, bot.id, idx);
+    if (check.ok && bot.cash >= state.board[idx].basePrice * CONFIG.pricing.buildCostFractionOfPrice) {
+      const result = buildOnSpace(state, bot.id, idx);
+      if (result.ok) actions.push(result.description);
+    }
+  }
+
+  // --- Place anchor: if bot owns an anchor slot without an anchor ---
+  for (const idx of bot.propertyIds) {
+    const space = state.board[idx];
+    if (space.type === 'anchorSlot' && !space.anchorType) {
+      const cost = Math.round(space.basePrice * CONFIG.anchors.placeCostMultiplier);
+      if (bot.cash >= cost) {
+        const types = CONFIG.anchors.typesAllowed;
+        const anchorType = types[Math.floor(Math.random() * types.length)];
+        const result = placeAnchor(state, bot.id, idx, anchorType);
+        if (result.ok) actions.push(result.description);
+      }
+    }
+  }
+
+  // --- Mortgage: if cash is very low, mortgage the least valuable property ---
+  if (bot.cash < CONFIG.money.paydayBase && bot.propertyIds.length > 0) {
+    const unmortgaged = bot.propertyIds
+      .map(idx => state.board[idx])
+      .filter(sp => sp.buildLevel >= 0)
+      .sort((a, b) => a.basePrice - b.basePrice);
+    if (unmortgaged.length > 0) {
+      const result = mortgageProperty(state, bot.id, unmortgaged[0].index);
+      if (result.ok) actions.push(result.description);
+    }
+  }
+
+  // --- Play Hit: target the richest non-bot player with roles, if bot has a role advantage ---
+  const richestHuman = Object.values(state.players)
+    .filter(p => !p.isBot && p.roles.length > 0 && !p.status.protectedByCopId)
+    .sort((a, b) => (b.netWorth || 0) - (a.netWorth || 0))[0];
+  if (richestHuman && bot.roles.length >= 2 && Math.random() < 0.15) {
+    const result = playHit(state, bot.id, richestHuman.id);
+    if (result.ok) actions.push(result.description);
+  }
+
+  // --- Play RICO: if bot has a clean official and there's a big boss ---
+  const bigBoss = Object.values(state.players)
+    .filter(p => p.id !== bot.id && p.roles.some(r => r.role === 'Boss') && p.roles.length >= CONFIG.actions.rico.minRolesToTarget)
+    .sort((a, b) => b.roles.length - a.roles.length)[0];
+  if (bigBoss && bot.roles.some(r => ['Cop', 'Politician', 'Judge'].includes(r.role) && r.clean)) {
+    if (Math.random() < 0.25) {
+      const result = playRICO(state, bot.id, bigBoss.id);
+      if (result.ok) actions.push(result.description);
+    }
+  }
+
+  return actions;
 }
 
 /** Remove a player/bot entirely; return their holdings to the pool; ripple

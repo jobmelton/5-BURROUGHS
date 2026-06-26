@@ -7,7 +7,8 @@ import * as readline from 'node:readline';
 import { CONFIG } from './gameConfig.js';
 import { newGame, newPlayer, recomputeNetWorth } from './game.js';
 import { takeTurn, rollDice, sendToJail } from './turns.js';
-import { buildOnSpace, effectiveRent, canBuild, buildCost } from './economy.js';
+import { buildOnSpace, effectiveRent, canBuild, buildCost, placeAnchor } from './economy.js';
+import { botAI } from './bots.js';
 import { mortgageProperty, processPaydayDebts, isMortgaged } from './mortgages.js';
 import { playHit, playRICO, playInformant, playPardon } from './actions.js';
 import { drawFrom } from './decks.js';
@@ -101,16 +102,8 @@ Commands:
 function botTurn(bot) {
   const result = takeTurn(state, bot.id);
   recomputeNetWorth(state, bot);
-  // bots auto-build when they can afford it
-  for (const idx of bot.propertyIds) {
-    const check = canBuild(state, bot.id, idx);
-    if (check.ok) {
-      const cost = buildCost(state.board[idx]);
-      if (bot.cash >= cost.total) {
-        buildOnSpace(state, bot.id, idx);
-      }
-    }
-  }
+  botAI(state, bot.id);
+  recomputeNetWorth(state, bot);
 }
 
 function runBotTurns() {

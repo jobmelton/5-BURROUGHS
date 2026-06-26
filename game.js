@@ -6,7 +6,7 @@
 import { CONFIG } from './gameConfig.js';
 import { buildBoard } from './board.js';
 import { buildCareerPool, buildActionPool } from './decks.js';
-import { desiredBotCount, onHumanJoin, dissolvePlayer } from './bots.js';
+import { desiredBotCount, onHumanJoin, dissolvePlayer, botAI } from './bots.js';
 import { contiguousOwnedRun, canBuild, buildCost, buildOnSpace, placeAnchor, expandAnchor, effectiveRent, resolveRent, catchUpStake } from './economy.js';
 import { takeTurn, sendToJail } from './turns.js';
 import { mortgageProperty, payOffMortgage, processPaydayDebts, isMortgaged } from './mortgages.js';
@@ -391,6 +391,36 @@ function casinoTest() {
   console.log(`Gambler cash after: $${visitor.cash}`);
 }
 
+// ---------------------------------------------------------------------------
+// BOT AI TEST — bots make strategic decisions over 10 turns.
+// ---------------------------------------------------------------------------
+function botAITest() {
+  const s = newGame();
+  console.log('\n=== BOT AI TEST ===');
+
+  // play 10 rounds — each bot takes a turn then runs AI
+  for (let round = 1; round <= 10; round++) {
+    for (const p of Object.values(s.players)) {
+      if (!p.isBot) continue;
+      takeTurn(s, p.id);
+      const aiActions = botAI(s, p.id);
+      recomputeNetWorth(s, p);
+      if (aiActions.length > 0) {
+        for (const a of aiActions) console.log(`  Round ${round} ${p.name}: ${a}`);
+      }
+    }
+  }
+
+  // summary
+  const bots = Object.values(s.players).filter(p => p.isBot).sort((a, b) => b.netWorth - a.netWorth);
+  console.log('\nBot summary after 10 rounds:');
+  for (const b of bots) {
+    const built = b.propertyIds.filter(i => s.board[i].buildLevel > 0).length;
+    const mortgaged = b.propertyIds.filter(i => s.board[i].buildLevel < 0).length;
+    console.log(`  ${b.name}: $${b.cash} cash, ${b.propertyIds.length} props (${built} built, ${mortgaged} mortgaged), ${b.roles.length} roles, net $${b.netWorth}`);
+  }
+}
+
 // run tests only when this file is the entry point
 const isMain = process.argv[1]?.replace(/\\/g, '/').endsWith('game.js');
 if (isMain) {
@@ -401,5 +431,6 @@ if (isMain) {
   haloTest();
   anchorTest();
   casinoTest();
+  botAITest();
   seasonTest();
 }
