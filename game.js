@@ -21,8 +21,8 @@ export function newPlayer(name, isBot = false) {
   return {
     id: newId(isBot ? 'bot' : 'p'), name, isBot,
     cash: CONFIG.money.startingCash, position: 0,
-    propertyIds: [], roles: [], hand: [], debts: [],
-    status: { protectedByCopId: null, ownedByBossId: null, jailed: false, jailTurns: 0 },
+    propertyIds: [], roles: [], dormantRoles: [], hand: [], debts: [],
+    status: { protectedByCopId: null, ownedByBossId: null, jailed: false, jailTurns: 0, hasMobDebt: false, roleDirty: false },
     allianceIds: [], netWorth: CONFIG.money.startingCash,
   };
 }

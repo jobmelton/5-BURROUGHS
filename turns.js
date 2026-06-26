@@ -5,8 +5,11 @@
 // Handles jail: skip turns while jailed, countdown, doubles = early release.
 // ===========================================================================
 import { CONFIG } from './gameConfig.js';
-import { resolveRent, processBossUpkeep, distributeTaxPool } from './economy.js';
+import { resolveRent } from './economy.js';
 import { drawFrom } from './decks.js';
+import { processTaxSquare } from './roles.js';
+import { processLoanPaymentsOnGo } from './lending.js';
+import { tickNotifications } from './notifications.js';
 
 /** Roll two six-sided dice. */
 export function rollDice() {
@@ -67,17 +70,9 @@ export function takeTurn(state, playerId) {
   if (passedStart) {
     player.cash += CONFIG.money.paydayBase;
 
-    // boss upkeep on payday
-    const upkeeps = processBossUpkeep(state);
-    const myUpkeep = upkeeps.find(u => u.playerId === player.id);
-    if (myUpkeep) parts.push(`Boss upkeep: -$${myUpkeep.paid}`);
-
-    // tax pool distribution to politicians on payday
-    const taxDist = distributeTaxPool(state);
-    if (taxDist.distributed > 0) {
-      const myTaxCut = taxDist.descriptions.find(d => d.includes(player.name));
-      if (myTaxCut) parts.push(myTaxCut);
-    }
+    // process loan payments on GO
+    const loanResults = processLoanPaymentsOnGo(state, player.id);
+    for (const d of loanResults.descriptions) parts.push(d);
   }
   player.position = newPos;
 
@@ -100,6 +95,9 @@ export function takeTurn(state, playerId) {
   if (space.type === 'jail') {
     sendToJail(player);
     parts.push(`Busted! Sent to jail for ${CONFIG.jail.maxTurns} turns`);
+  } else if (space.type === 'tax') {
+    const taxResult = processTaxSquare(state, player.id, space.borough);
+    parts.push(taxResult.description);
   } else if (isProperty && space.ownerId === null) {
     // unowned buyable space
     if (player.cash >= space.basePrice) {
@@ -170,6 +168,9 @@ export function takeTurn(state, playerId) {
       if (state.strikeBoroughs[b] > 0) state.strikeBoroughs[b]--;
     }
   }
+
+  // --- tick notifications ---
+  tickNotifications(state);
 
   return { roll, description: parts.join(' → ') };
 }
