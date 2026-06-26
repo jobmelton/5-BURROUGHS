@@ -132,6 +132,8 @@ export const CONFIG = {
     bankerFeeDefault: 0.05,    // default servicing fee per payday (negotiable)
     principalToBank: true,     // balance of each payment retires principal (sink)
     builderBankerMinFeeToFreeParking: 0.10,
+    mortgageFraction: 0.50,    // player receives 50% of base price as cash
+    paymentFractionPerPayday: 0.20, // each payday payment = 20% of mortgage value
   },
 
   // ---- Async / bots --------------------------------------------------------

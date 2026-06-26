@@ -61,6 +61,7 @@ export function resolveRent(state, payerId, index) {
   const owner = state.players[space.ownerId];
   const payer = state.players[payerId];
   if (!owner || owner.id === payerId) return [];
+  if (space.buildLevel < 0) return []; // mortgaged — no rent
 
   const rent = effectiveRent(space);
   const transfers = [];

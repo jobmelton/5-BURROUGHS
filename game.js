@@ -9,6 +9,7 @@ import { buildCareerPool, buildActionPool } from './decks.js';
 import { desiredBotCount, onHumanJoin, dissolvePlayer } from './bots.js';
 import { contiguousOwnedRun, canBuild, buildCost, effectiveRent, resolveRent, catchUpStake } from './economy.js';
 import { takeTurn, sendToJail } from './turns.js';
+import { mortgageProperty, payOffMortgage, processPaydayDebts, isMortgaged } from './mortgages.js';
 
 let _id = 0;
 const newId = (p) => `${p}-${++_id}`;
@@ -170,7 +171,54 @@ function jailTest() {
   console.log(`Manually landed on jail → jailed=${human.status.jailed}, turns=${human.status.jailTurns}`);
 }
 
+// ---------------------------------------------------------------------------
+// MORTGAGE TEST — mortgage, skip rent, payday payments, payoff.
+// ---------------------------------------------------------------------------
+function mortgageTest() {
+  const s = newGame();
+  const owner = newPlayer('Sal');
+  const tenant = newPlayer('Mikey');
+  s.players[owner.id] = owner;
+  s.players[tenant.id] = tenant;
+
+  console.log('\n=== MORTGAGE TEST ===');
+
+  // owner buys a lot
+  const lot = s.board.find(x => x.type === 'vacantLot' && x.ownerId === null);
+  owner.cash -= lot.basePrice; lot.ownerId = owner.id; owner.propertyIds.push(lot.index);
+  console.log(`Sal bought lot #${lot.index} for $${lot.basePrice} (cash $${owner.cash})`);
+
+  // mortgage it
+  const m = mortgageProperty(s, owner.id, lot.index);
+  console.log(m.description);
+  console.log(`  Mortgaged? ${isMortgaged(lot)} (buildLevel=${lot.buildLevel})`);
+  console.log(`  Debts: ${owner.debts.length}, principal: $${owner.debts[0]?.principalRemaining}`);
+
+  // tenant lands on it — should pay no rent
+  const transfers = resolveRent(s, tenant.id, lot.index);
+  console.log(`  Rent while mortgaged: ${transfers.length} transfers (expect 0)`);
+
+  // process payday debts
+  console.log('\nPayday debt processing:');
+  for (let i = 1; i <= 6; i++) {
+    if (owner.debts.length === 0) { console.log(`  Payday ${i}: All debts cleared!`); break; }
+    const result = processPaydayDebts(s, owner);
+    console.log(`  Payday ${i}: ${result.descriptions.join(' ')}`);
+  }
+  console.log(`  Cash after paydays: $${owner.cash}`);
+  console.log(`  Debts remaining: ${owner.debts.length}`);
+  console.log(`  Property un-mortgaged? ${!isMortgaged(lot)} (buildLevel=${lot.buildLevel})`);
+
+  // if debt still exists, pay it off manually
+  if (owner.debts.length > 0) {
+    const po = payOffMortgage(s, owner.id, owner.debts[0].id);
+    console.log(`\nManual payoff: ${po.description}`);
+    console.log(`  Debts remaining: ${owner.debts.length}`);
+  }
+}
+
 // run if invoked directly
 smokeTest();
 turnLoopTest();
 jailTest();
+mortgageTest();
