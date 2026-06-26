@@ -86,7 +86,7 @@ File: `actions.js`, test: `testActions.js`.
 - Update CLAUDE.md and README.md to reflect all new systems.
 - Clean up any dead code or stale comments.
 
-## M14 — Terminal UI upgrade
+## M14 — Terminal UI upgrade ✅
 - ANSI colors for boroughs, player highlights, rent/buy events.
 - ASCII board map showing player positions.
 - Turn history log visible on screen.
