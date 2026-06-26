@@ -38,7 +38,7 @@ File: `actions.js`, test: `testActions.js`.
 - Soft-reset: properties revert, careers reshuffle, cash resets.
 - Test: simulate season end, verify payouts and reset.
 
-## M7 — Interactive terminal play (`play.js`)
+## M7 — Interactive terminal play (`play.js`) ✅
 - Stdin-driven game loop: roll, buy/pass, play action cards, view status.
 - Human vs bots, bots auto-play on simple heuristics.
 - Print board state, player stats, and turn history.
