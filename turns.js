@@ -99,18 +99,44 @@ export function takeTurn(state, playerId) {
       parts.push(`Can't afford $${space.basePrice} (cash $${player.cash})`);
     }
   } else if (isProperty && space.ownerId && space.ownerId !== player.id) {
-    // owned by someone else — pay rent (+ any capo skim / protection flows)
-    const transfers = resolveRent(state, player.id, space.index);
-    for (const t of transfers) {
-      if (state.players[t.from]) state.players[t.from].cash -= t.amount;
-      if (t.to !== 'BANK' && state.players[t.to]) {
-        state.players[t.to].cash += t.amount;
+    // --- casino dice: special roll when landing on a casino anchor ---
+    if (space.anchorType === 'casino') {
+      const casinoRoll = rollDice();
+      const casinoCfg = CONFIG.casino;
+      parts.push(`Casino dice: ${casinoRoll.d1}+${casinoRoll.d2}=${casinoRoll.total}`);
+
+      if (casinoCfg.free.includes(casinoRoll.total)) {
+        parts.push('Lucky! Pay nothing');
+      } else {
+        const isOdd = casinoRoll.total % 2 !== 0;
+        const mult = (isOdd && casinoCfg.tripleOnOdd) ? 3
+                   : (!isOdd && casinoCfg.doubleOnEven) ? 2 : 1;
+        const transfers = resolveRent(state, player.id, space.index);
+        for (const t of transfers) {
+          const adjusted = t.reason === 'rent' ? t.amount * mult : t.amount;
+          if (state.players[t.from]) state.players[t.from].cash -= adjusted;
+          if (t.to !== 'BANK' && state.players[t.to]) state.players[t.to].cash += adjusted;
+        }
+        const rentTransfer = transfers.find(t => t.reason === 'rent');
+        if (rentTransfer) {
+          const ownerName = state.players[space.ownerId]?.name ?? space.ownerId;
+          parts.push(`${mult}x rent! Paid $${rentTransfer.amount * mult} to ${ownerName}`);
+        }
       }
-    }
-    const rentTransfer = transfers.find(t => t.reason === 'rent');
-    if (rentTransfer) {
-      const ownerName = state.players[space.ownerId]?.name ?? space.ownerId;
-      parts.push(`Paid $${rentTransfer.amount} rent to ${ownerName}`);
+    } else {
+      // normal rent
+      const transfers = resolveRent(state, player.id, space.index);
+      for (const t of transfers) {
+        if (state.players[t.from]) state.players[t.from].cash -= t.amount;
+        if (t.to !== 'BANK' && state.players[t.to]) {
+          state.players[t.to].cash += t.amount;
+        }
+      }
+      const rentTransfer = transfers.find(t => t.reason === 'rent');
+      if (rentTransfer) {
+        const ownerName = state.players[space.ownerId]?.name ?? space.ownerId;
+        parts.push(`Paid $${rentTransfer.amount} rent to ${ownerName}`);
+      }
     }
   }
 

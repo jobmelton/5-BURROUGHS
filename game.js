@@ -351,6 +351,46 @@ function anchorTest() {
   console.log(`Invalid type: ${p3.description}`);
 }
 
+// ---------------------------------------------------------------------------
+// CASINO TEST — land on a casino anchor, special dice determine rent.
+// ---------------------------------------------------------------------------
+function casinoTest() {
+  const s = newGame();
+  const owner = newPlayer('CasinoKing');
+  const visitor = newPlayer('Gambler');
+  s.players[owner.id] = owner;
+  s.players[visitor.id] = visitor;
+  owner.cash = 50000;
+  visitor.cash = 50000;
+
+  console.log('\n=== CASINO TEST ===');
+
+  // set up a casino anchor on slot #9
+  const anchorIdx = 9;
+  const anchor = s.board[anchorIdx];
+  anchor.ownerId = owner.id;
+  owner.propertyIds.push(anchorIdx);
+  placeAnchor(s, owner.id, anchorIdx, 'casino');
+  console.log(`Casino placed on #${anchorIdx}. Base rent: $${anchor.baseRent}, effective: $${effectiveRent(anchor)}`);
+
+  // run many turns from nearby until we get some casino landings
+  console.log(`\nGambler rolls repeatedly near the casino:`);
+  let casinoHits = 0;
+  for (let i = 0; i < 30 && casinoHits < 3; i++) {
+    // set position so a range of rolls can hit the casino
+    visitor.position = anchorIdx - 7; // rolls 2-12 cover a range around the casino
+    const cashBefore = visitor.cash;
+    const result = takeTurn(s, visitor.id);
+    if (result.description.includes('Casino dice') || result.description.includes('Lucky')) {
+      const spent = cashBefore - visitor.cash;
+      console.log(`  ${result.description} (net ${spent > 0 ? '-' : '+'}$${Math.abs(spent)})`);
+      casinoHits++;
+    }
+  }
+  if (casinoHits === 0) console.log('  (No casino landings in 30 rolls — dice are random!)');
+  console.log(`Gambler cash after: $${visitor.cash}`);
+}
+
 // run tests only when this file is the entry point
 const isMain = process.argv[1]?.replace(/\\/g, '/').endsWith('game.js');
 if (isMain) {
@@ -360,5 +400,6 @@ if (isMain) {
   mortgageTest();
   haloTest();
   anchorTest();
+  casinoTest();
   seasonTest();
 }
