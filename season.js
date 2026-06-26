@@ -3,8 +3,8 @@
 // Season timer, leaderboard, godfather tribute, bounty payout, soft-reset.
 // ===========================================================================
 import { CONFIG } from './gameConfig.js';
-import { buildBoard } from './board.js';
 import { buildCareerPool, buildActionPool } from './decks.js';
+import { checkCleanCityWin } from './economy.js';
 
 const { season, money } = CONFIG;
 
@@ -37,7 +37,6 @@ export function collectGodfatherTribute(state) {
 
   const toBounty = Math.round(collected * season.bountyPoolFromGodfatherTributeFraction);
   state.bountyPool += toBounty;
-  // the rest is a sink (disappears from economy)
 
   descriptions.push(`Tribute collected: $${collected} from ${Object.keys(state.players).length} players.`);
   descriptions.push(`Bounty pool now $${state.bountyPool} (+$${toBounty}).`);
@@ -46,16 +45,21 @@ export function collectGodfatherTribute(state) {
 }
 
 /**
- * End the season: pay out the bounty pool to the top players,
- * then soft-reset the board, decks, and player holdings.
+ * End the season: check Clean City, pay out bounty pool, then soft-reset.
  * Returns { payouts, descriptions }.
  */
 export function endSeason(state) {
   const descriptions = [];
-  const board = leaderboard(state);
 
-  // --- payout: top 3 split the bounty pool (50% / 30% / 20%) ---
-  const splits = [0.50, 0.30, 0.20];
+  // --- Clean City check: do the Law holders win? ---
+  const cleanCity = checkCleanCityWin(state);
+  if (cleanCity.lawWins) {
+    for (const d of cleanCity.descriptions) descriptions.push(d);
+  }
+
+  // --- bounty payout: top N split the bounty pool ---
+  const board = leaderboard(state);
+  const splits = season.payoutSplits;
   const payouts = [];
   const pool = state.bountyPool;
 
@@ -70,7 +74,6 @@ export function endSeason(state) {
   descriptions.push(`Bounty pool $${pool} distributed.`);
 
   // --- soft reset ---
-  // revert board: all properties go unowned, builds cleared
   for (const space of state.board) {
     space.ownerId = null;
     space.buildLevel = 0;
@@ -79,7 +82,6 @@ export function endSeason(state) {
     space.haloBonus = 0;
   }
 
-  // clear player holdings, reset cash, keep identity
   for (const p of Object.values(state.players)) {
     p.propertyIds = [];
     p.roles = [];
@@ -92,7 +94,6 @@ export function endSeason(state) {
     p.allianceIds = [];
   }
 
-  // reshuffle decks
   state.careerPool = buildCareerPool();
   state.actionPool = buildActionPool();
   state.bountyPool = 0;
@@ -100,6 +101,7 @@ export function endSeason(state) {
   state.freeParkingPool = 0;
   state.cleanCityMeter = 1;
   state.godfatherId = null;
+  state.strikeBoroughs = {};
   state.seasonEndsAt = Date.now() + season.lengthDays * 864e5;
 
   descriptions.push('Season reset: board cleared, cash reset, decks reshuffled.');

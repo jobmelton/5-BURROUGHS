@@ -5,7 +5,7 @@
 // Handles jail: skip turns while jailed, countdown, doubles = early release.
 // ===========================================================================
 import { CONFIG } from './gameConfig.js';
-import { resolveRent } from './economy.js';
+import { resolveRent, processBossUpkeep, distributeTaxPool } from './economy.js';
 import { drawFrom } from './decks.js';
 
 /** Roll two six-sided dice. */
@@ -66,6 +66,18 @@ export function takeTurn(state, playerId) {
 
   if (passedStart) {
     player.cash += CONFIG.money.paydayBase;
+
+    // boss upkeep on payday
+    const upkeeps = processBossUpkeep(state);
+    const myUpkeep = upkeeps.find(u => u.playerId === player.id);
+    if (myUpkeep) parts.push(`Boss upkeep: -$${myUpkeep.paid}`);
+
+    // tax pool distribution to politicians on payday
+    const taxDist = distributeTaxPool(state);
+    if (taxDist.distributed > 0) {
+      const myTaxCut = taxDist.descriptions.find(d => d.includes(player.name));
+      if (myTaxCut) parts.push(myTaxCut);
+    }
   }
   player.position = newPos;
 
@@ -149,6 +161,13 @@ export function takeTurn(state, playerId) {
       parts.push(`Drew career: ${card.role} (borough ${card.borough})`);
     } else {
       parts.push('Career pool empty — no card drawn');
+    }
+  }
+
+  // --- tick down strike durations ---
+  if (state.strikeBoroughs) {
+    for (const b of Object.keys(state.strikeBoroughs)) {
+      if (state.strikeBoroughs[b] > 0) state.strikeBoroughs[b]--;
     }
   }
 

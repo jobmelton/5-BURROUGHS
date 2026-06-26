@@ -7,7 +7,7 @@ import { CONFIG } from './gameConfig.js';
 import { buildBoard } from './board.js';
 import { buildCareerPool, buildActionPool } from './decks.js';
 import { desiredBotCount, onHumanJoin, dissolvePlayer, botAI } from './bots.js';
-import { contiguousOwnedRun, canBuild, buildCost, buildOnSpace, placeAnchor, expandAnchor, effectiveRent, resolveRent, catchUpStake } from './economy.js';
+import { contiguousOwnedRun, canBuild, buildCost, buildOnSpace, placeAnchor, expandAnchor, effectiveRent, resolveRent, catchUpStake, processBossUpkeep, buildingCostSplit, distributeTaxPool, checkCleanCityWin } from './economy.js';
 import { takeTurn, sendToJail } from './turns.js';
 import { mortgageProperty, payOffMortgage, processPaydayDebts, isMortgaged } from './mortgages.js';
 import { leaderboard, collectGodfatherTribute, endSeason } from './season.js';
@@ -456,6 +456,80 @@ function saveLoadTest() {
   try { unlinkSync(savePath); } catch {}
 }
 
+// ---------------------------------------------------------------------------
+// VIG & PAYOUT TEST — boss upkeep, building split, tax distribution, clean city.
+// ---------------------------------------------------------------------------
+function vigPayoutTest() {
+  const s = newGame();
+  console.log('\n=== VIG & PAYOUT TEST ===');
+
+  const boss = newPlayer('Don Vito');
+  const capo = newPlayer('Luca');
+  const inspector = newPlayer('Inspector Joe');
+  const politician = newPlayer('Senator Kay');
+  s.players[boss.id] = boss;
+  s.players[capo.id] = capo;
+  s.players[inspector.id] = inspector;
+  s.players[politician.id] = politician;
+
+  // give boss a Boss card, and make Luca controlled by him
+  boss.roles.push({ id: 'v-boss', role: 'Boss', borough: 1, ownedById: boss.id, clean: undefined });
+  capo.roles.push({ id: 'l-capo', role: 'Capo', borough: 1, ownedById: capo.id, clean: undefined });
+  capo.roles.push({ id: 'l-bank', role: 'Banker', borough: 1, ownedById: capo.id, clean: undefined });
+  capo.status.ownedByBossId = boss.id;
+
+  // give inspector and politician their roles in borough 1
+  inspector.roles.push({ id: 'j-insp', role: 'Inspector', borough: 1, ownedById: inspector.id, clean: undefined });
+  politician.roles.push({ id: 'k-pol', role: 'Politician', borough: 1, ownedById: politician.id, clean: true });
+
+  // 1. Boss upkeep
+  console.log('\n--- Boss upkeep ---');
+  console.log(`  Don Vito cash before: $${boss.cash}`);
+  const upkeeps = processBossUpkeep(s);
+  for (const u of upkeeps) console.log(`  ${u.description}`);
+  console.log(`  Don Vito cash after: $${boss.cash}`);
+
+  // 2. Building split — buy lot #1 and build, check inspector/politician get paid
+  console.log('\n--- Building cost split ---');
+  const lot = s.board[1];
+  lot.ownerId = boss.id;
+  boss.propertyIds.push(1);
+  console.log(`  Inspector cash before: $${inspector.cash}`);
+  console.log(`  Politician cash before: $${politician.cash}`);
+  const buildResult = buildOnSpace(s, boss.id, 1);
+  console.log(`  ${buildResult.description}`);
+  console.log(`  Inspector cash after: $${inspector.cash}`);
+  console.log(`  Politician cash after: $${politician.cash}`);
+
+  // 3. Tax pool distribution
+  console.log('\n--- Tax pool distribution ---');
+  s.taxPool = 500;
+  console.log(`  Tax pool: $${s.taxPool}`);
+  console.log(`  Senator Kay cash before: $${politician.cash}`);
+  const taxResult = distributeTaxPool(s);
+  for (const d of taxResult.descriptions) console.log(`  ${d}`);
+
+  // 4. Clean City check
+  console.log('\n--- Clean City check ---');
+  // give someone a clean cop and judge
+  boss.roles.push({ id: 'v-cop', role: 'Cop', borough: 1, ownedById: boss.id, clean: true });
+  boss.roles.push({ id: 'v-judge', role: 'Judge', borough: 1, ownedById: boss.id, clean: true });
+  const cc1 = checkCleanCityWin(s);
+  console.log(`  All clean? ${cc1.lawWins}`);
+  for (const d of cc1.descriptions) console.log(`  ${d}`);
+
+  // taint one — should fail
+  politician.roles[0].clean = false;
+  const cc2 = checkCleanCityWin(s);
+  console.log(`  After tainting politician: lawWins=${cc2.lawWins}`);
+
+  // 5. Strike blocks building
+  console.log('\n--- Strike blocks building ---');
+  s.strikeBoroughs = { 1: 2 };
+  const blocked = canBuild(s, boss.id, 1);
+  console.log(`  Build in struck borough: ${blocked.ok ? 'allowed' : blocked.reason}`);
+}
+
 // run tests only when this file is the entry point
 const isMain = process.argv[1]?.replace(/\\/g, '/').endsWith('game.js');
 if (isMain) {
@@ -468,5 +542,6 @@ if (isMain) {
   casinoTest();
   botAITest();
   saveLoadTest();
+  vigPayoutTest();
   seasonTest();
 }

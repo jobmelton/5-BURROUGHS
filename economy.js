@@ -30,6 +30,10 @@ export function canBuild(state, playerId, index) {
   const space = state.board[index];
   if (space.ownerId !== playerId) return { ok: false, reason: 'not owner' };
   if (space.buildLevel >= build.maxBuildLevel) return { ok: false, reason: 'max level' };
+  // strike check: building shut down in this borough?
+  if (state.strikeBoroughs?.[space.borough] > 0) {
+    return { ok: false, reason: `strike in borough ${space.borough} (${state.strikeBoroughs[space.borough]} turns left)` };
+  }
   const need = build.contiguityRequired[space.borough - 1];
   const have = contiguousOwnedRun(state, playerId, index);
   if (have < need) return { ok: false, reason: `need ${need} contiguous, have ${have}` };
@@ -65,9 +69,13 @@ export function buildOnSpace(state, playerId, index) {
   space.buildLevel++;
   applyHalo(state, index);
 
+  // split build cost to role holders in this borough
+  const splits = buildingCostSplit(state, space.borough, cost.total);
+  const splitNote = splits.filter(s => s.to !== 'BANK').map(s => `${s.reason}: $${s.amount}`).join(', ');
+
   return {
     ok: true,
-    description: `Built level ${space.buildLevel} on #${index} (b${space.borough}) for $${cost.total}. Cash $${player.cash}.`,
+    description: `Built level ${space.buildLevel} on #${index} (b${space.borough}) for $${cost.total}. Cash $${player.cash}.${splitNote ? ' Splits: ' + splitNote : ''}`,
   };
 }
 
@@ -233,6 +241,142 @@ export function catchUpStake(state) {
     CONFIG.money.catchUpFloor,
     Math.round(avg * CONFIG.money.catchUpFractionOfAvg)
   );
+}
+
+/**
+ * Boss upkeep: each player holding a Boss card pays bossUpkeepPerRole for
+ * every role they control (via ownedByBossId). Paid on payday; goes to bank (sink).
+ * Returns [{ playerId, paid, roleCount, description }].
+ */
+export function processBossUpkeep(state) {
+  const results = [];
+  for (const p of Object.values(state.players)) {
+    if (!p.roles.some(r => r.role === 'Boss')) continue;
+
+    // count roles controlled by this boss (other players owned by them)
+    const controlled = Object.values(state.players)
+      .filter(o => o.id !== p.id && o.status?.ownedByBossId === p.id);
+    const controlledRoleCount = controlled.reduce((sum, o) => sum + o.roles.length, 0);
+    if (controlledRoleCount === 0) continue;
+
+    const cost = controlledRoleCount * economy.bossUpkeepPerRole;
+    const paid = Math.min(cost, p.cash);
+    p.cash -= paid;
+
+    results.push({
+      playerId: p.id,
+      paid,
+      roleCount: controlledRoleCount,
+      description: `${p.name} (Boss) paid $${paid} upkeep for ${controlledRoleCount} controlled role(s).`,
+    });
+  }
+  return results;
+}
+
+/**
+ * Building cost split: when a player builds, a portion of the cost goes to
+ * role holders in that borough: Inspector, LaborBoss, and optionally Banker/Politician.
+ * Call after deducting the build cost from the builder.
+ * Returns transfers [{ to, amount, reason }].
+ */
+export function buildingCostSplit(state, borough, totalCost) {
+  if (!economy.buildingSplit) return [];
+  const transfers = [];
+
+  // find role holders for this borough
+  const inspector = findRoleHolder(state, 'Inspector', borough);
+  const laborBoss = findRoleHolder(state, 'LaborBoss', borough);
+  const banker = findRoleHolder(state, 'Banker', borough);
+  const politician = findRoleHolder(state, 'Politician', borough);
+
+  const holders = [inspector, laborBoss, banker, politician].filter(Boolean);
+  if (holders.length === 0) return [];
+
+  const shareEach = Math.floor(totalCost / holders.length);
+  for (const holder of holders) {
+    const vig = Math.round(shareEach * economy.commissionVig);
+    const net = shareEach - vig;
+    holder.cash += net;
+    transfers.push({ to: holder.id, amount: net, reason: `build split (${holder.roles.find(r => ['Inspector','LaborBoss','Banker','Politician'].includes(r.role) && r.borough === borough)?.role})` });
+    // vig sinks to bank
+    if (vig > 0) transfers.push({ to: 'BANK', amount: vig, reason: 'build split vig (sink)' });
+  }
+  return transfers;
+}
+
+/**
+ * Distribute the tax pool among all Politician role holders, equally.
+ * Returns { distributed, perPolitician, descriptions }.
+ */
+export function distributeTaxPool(state) {
+  if (!economy.politicianTaxSplit) return { distributed: 0, perPolitician: 0, descriptions: [] };
+  if (state.taxPool <= 0) return { distributed: 0, perPolitician: 0, descriptions: [] };
+
+  // find all players holding Politician cards
+  const politicians = [];
+  for (const p of Object.values(state.players)) {
+    const polCards = p.roles.filter(r => r.role === 'Politician');
+    if (polCards.length > 0) politicians.push({ player: p, count: polCards.length });
+  }
+  if (politicians.length === 0) return { distributed: 0, perPolitician: 0, descriptions: [] };
+
+  const totalShares = politicians.reduce((s, p) => s + p.count, 0);
+  const perShare = Math.floor(state.taxPool / totalShares);
+  const descriptions = [];
+  let distributed = 0;
+
+  for (const { player, count } of politicians) {
+    const payout = perShare * count;
+    player.cash += payout;
+    distributed += payout;
+    descriptions.push(`${player.name} received $${payout} from tax pool (${count} Politician card(s)).`);
+  }
+
+  state.taxPool -= distributed;
+  descriptions.push(`Tax pool: $${distributed} distributed, $${state.taxPool} remaining.`);
+  return { distributed, perPolitician: perShare, descriptions };
+}
+
+/**
+ * Check for Clean City win: if all Cop/Politician/Judge cards in play are clean,
+ * the Law wins and each clean role holder gets the cleanCityReward.
+ * Returns { lawWins, rewards, descriptions }.
+ */
+export function checkCleanCityWin(state) {
+  const cleanRoles = ['Cop', 'Politician', 'Judge'];
+  const holders = [];
+  let allClean = true;
+  let anyInPlay = false;
+
+  for (const p of Object.values(state.players)) {
+    for (const card of p.roles) {
+      if (cleanRoles.includes(card.role)) {
+        anyInPlay = true;
+        if (!card.clean) { allClean = false; break; }
+        holders.push(p);
+      }
+    }
+    if (!allClean) break;
+  }
+
+  if (!anyInPlay || !allClean) {
+    return { lawWins: false, rewards: [], descriptions: [] };
+  }
+
+  const reward = economy.cleanCityReward;
+  const rewards = [];
+  const descriptions = [];
+  const seen = new Set();
+
+  for (const p of holders) {
+    if (seen.has(p.id)) continue;
+    seen.add(p.id);
+    p.cash += reward;
+    rewards.push({ playerId: p.id, amount: reward });
+    descriptions.push(`${p.name} earned $${reward} Clean City reward.`);
+  }
+  descriptions.push('The Law wins! All officials are clean.');
+  return { lawWins: true, rewards, descriptions };
 }
 
 // --- small helpers (stubs to wire to your role-tracking) -------------------

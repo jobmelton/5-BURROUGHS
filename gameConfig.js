@@ -171,5 +171,6 @@ export const CONFIG = {
     lengthDays: 7,             // weekly soft-reset
     bountyPoolFromGodfatherTributeFraction: 0.5, // half of tribute -> bounty pool
     godfatherTributePerPayday: 25,
+    payoutSplits: [0.50, 0.30, 0.20],  // top 3 split the bounty pool
   },
 };
