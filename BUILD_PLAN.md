@@ -11,21 +11,21 @@ File: `turns.js`, test in `game.js`.
 Wire up Hit, RICO, Informant, Pardon with real game-state mutations.
 File: `actions.js`, test: `testActions.js`.
 
-## M3 — Jail mechanics
+## M3 — Jail mechanics ✅
 - Landing on a jail space sends the player to jail.
 - Jailed players skip their turn; jail turns count down each turn.
 - Doubles rolled while jailed = early release.
 - RICO jail turns already wired; integrate into the turn loop.
 - Test: a player goes to jail, sits, and gets released.
 
-## M4 — Mortgages & debt ledger
+## M4 — Mortgages & debt ledger ✅
 - A player can mortgage a property to the bank for cash (fraction of base price).
 - Mortgaged properties don't collect rent.
 - Each payday, mortgage payments auto-deduct (principal + banker fee).
 - Debt clears when principal hits 0; property un-mortgages.
 - Test: mortgage, collect no rent, pay down, clear.
 
-## M5 — Halo system on build
+## M5 — Halo system on build ✅
 - When a player builds, apply the value halo to neighboring lots.
 - Halo decays by distance, stacks up to the cap.
 - Building raises effective rent for neighbors within radius.

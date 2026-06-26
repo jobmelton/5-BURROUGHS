@@ -10,6 +10,7 @@ import { desiredBotCount, onHumanJoin, dissolvePlayer } from './bots.js';
 import { contiguousOwnedRun, canBuild, buildCost, buildOnSpace, effectiveRent, resolveRent, catchUpStake } from './economy.js';
 import { takeTurn, sendToJail } from './turns.js';
 import { mortgageProperty, payOffMortgage, processPaydayDebts, isMortgaged } from './mortgages.js';
+import { leaderboard, collectGodfatherTribute, endSeason } from './season.js';
 
 let _id = 0;
 const newId = (p) => `${p}-${++_id}`;
@@ -261,9 +262,49 @@ function haloTest() {
   console.log(`After max builds: halo on #1=${s.board[1].haloBonus} (cap=${CONFIG.build.halo.stackCap})`);
 }
 
+// ---------------------------------------------------------------------------
+// SEASON TEST — tribute, leaderboard, bounty payout, soft-reset.
+// ---------------------------------------------------------------------------
+function seasonTest() {
+  const s = newGame();
+  const p1 = newPlayer('Vito');   p1.cash = 5000; p1.netWorth = 5000;
+  const p2 = newPlayer('Sonny');  p2.cash = 3000; p2.netWorth = 3000;
+  const p3 = newPlayer('Fredo');  p3.cash = 1000; p3.netWorth = 1000;
+  s.players[p1.id] = p1;
+  s.players[p2.id] = p2;
+  s.players[p3.id] = p3;
+
+  // give p1 a property so reset is visible
+  const lot = s.board.find(x => x.basePrice > 0);
+  lot.ownerId = p1.id; p1.propertyIds.push(lot.index);
+
+  console.log('\n=== SEASON TEST ===');
+
+  // collect tribute a few times to build bounty pool
+  for (let i = 0; i < 3; i++) {
+    const t = collectGodfatherTribute(s);
+    console.log(`Tribute ${i + 1}: ${t.descriptions.join(' ')}`);
+  }
+
+  // leaderboard
+  const lb = leaderboard(s);
+  console.log('\nLeaderboard:');
+  for (const e of lb.slice(0, 5)) {
+    console.log(`  #${e.rank} ${e.player.name} — $${e.netWorth}`);
+  }
+
+  // end season
+  console.log('\nEnding season...');
+  const result = endSeason(s);
+  for (const line of result.descriptions) console.log(`  ${line}`);
+
+  console.log(`\nAfter reset: Vito cash=$${p1.cash}, properties=${p1.propertyIds.length}, lot #${lot.index} owner=${lot.ownerId}`);
+}
+
 // run if invoked directly
 smokeTest();
 turnLoopTest();
 jailTest();
 mortgageTest();
 haloTest();
+seasonTest();
