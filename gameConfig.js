@@ -70,6 +70,9 @@ export const CONFIG = {
     perBorough: 1,
     expandRequiresSurroundingLots: true, // own neighbors to expand capacity
     expandLevels: 3,           // anchor can grow this many times
+    placeCostMultiplier: 1.5,  // place cost = basePrice * this
+    expandCostMultiplier: 1.0, // each expand = basePrice * this
+    rentMultiplierByLevel: [2.0, 3.0, 4.0, 5.0], // rent mult at level 0,1,2,3
   },
 
   // ---- Career draw triggers ------------------------------------------------

@@ -7,7 +7,7 @@ import { CONFIG } from './gameConfig.js';
 import { buildBoard } from './board.js';
 import { buildCareerPool, buildActionPool } from './decks.js';
 import { desiredBotCount, onHumanJoin, dissolvePlayer } from './bots.js';
-import { contiguousOwnedRun, canBuild, buildCost, buildOnSpace, effectiveRent, resolveRent, catchUpStake } from './economy.js';
+import { contiguousOwnedRun, canBuild, buildCost, buildOnSpace, placeAnchor, expandAnchor, effectiveRent, resolveRent, catchUpStake } from './economy.js';
 import { takeTurn, sendToJail } from './turns.js';
 import { mortgageProperty, payOffMortgage, processPaydayDebts, isMortgaged } from './mortgages.js';
 import { leaderboard, collectGodfatherTribute, endSeason } from './season.js';
@@ -301,6 +301,56 @@ function seasonTest() {
   console.log(`\nAfter reset: Vito cash=$${p1.cash}, properties=${p1.propertyIds.length}, lot #${lot.index} owner=${lot.ownerId}`);
 }
 
+// ---------------------------------------------------------------------------
+// ANCHOR TEST — place, expand, verify rent multiplier.
+// ---------------------------------------------------------------------------
+function anchorTest() {
+  const s = newGame();
+  const player = newPlayer('Marco');
+  s.players[player.id] = player;
+  player.cash = 50000;
+
+  console.log('\n=== ANCHOR TEST ===');
+
+  // anchor slot is at index 9 in each borough (borough 1 = index 9)
+  const anchorIdx = 9;
+  const anchor = s.board[anchorIdx];
+  anchor.ownerId = player.id;
+  player.propertyIds.push(anchorIdx);
+  console.log(`Marco owns anchor slot #${anchorIdx} (b${anchor.borough}), baseRent=$${anchor.baseRent}`);
+
+  // place a football stadium
+  const p1 = placeAnchor(s, player.id, anchorIdx, 'football');
+  console.log(p1.description);
+  console.log(`  Rent with anchor (level 0): $${effectiveRent(anchor)}`);
+
+  // try placing again — should fail
+  const p2 = placeAnchor(s, player.id, anchorIdx, 'casino');
+  console.log(`Place again: ${p2.description}`);
+
+  // expand — need surrounding lots owned
+  // own neighbor #8 and #10
+  s.board[8].ownerId = player.id; player.propertyIds.push(8);
+  s.board[10].ownerId = player.id; player.propertyIds.push(10);
+  console.log(`Owns neighbors #8, #10`);
+
+  const e1 = expandAnchor(s, player.id, anchorIdx);
+  console.log(`Expand 1: ${e1.description}`);
+  console.log(`  Rent at level ${anchor.anchorLevel}: $${effectiveRent(anchor)}`);
+
+  const e2 = expandAnchor(s, player.id, anchorIdx);
+  console.log(`Expand 2: ${e2.description}`);
+  console.log(`  Rent at level ${anchor.anchorLevel}: $${effectiveRent(anchor)}`);
+
+  // expand 3 — need 3 neighbors, only have 2
+  const e3 = expandAnchor(s, player.id, anchorIdx);
+  console.log(`Expand 3: ${e3.description}`);
+
+  // invalid type test
+  const p3 = placeAnchor(s, player.id, 22, 'hockey');
+  console.log(`Invalid type: ${p3.description}`);
+}
+
 // run tests only when this file is the entry point
 const isMain = process.argv[1]?.replace(/\\/g, '/').endsWith('game.js');
 if (isMain) {
@@ -309,5 +359,6 @@ if (isMain) {
   jailTest();
   mortgageTest();
   haloTest();
+  anchorTest();
   seasonTest();
 }

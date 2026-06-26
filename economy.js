@@ -95,9 +95,83 @@ export function applyHalo(state, sourceIndex) {
   }
 }
 
-/** Effective rent for a space, applying build level and halo bonus. */
+/**
+ * Place an anchor (stadium/casino) on an anchor slot.
+ * Player must own the slot. Costs basePrice * placeCostMultiplier.
+ */
+export function placeAnchor(state, playerId, index, anchorType) {
+  const space = state.board[index];
+  const player = state.players[playerId];
+  const { anchors } = CONFIG;
+  if (!player) return { ok: false, description: 'Invalid player.' };
+  if (space.type !== 'anchorSlot') return { ok: false, description: 'Not an anchor slot.' };
+  if (space.ownerId !== playerId) return { ok: false, description: 'You don\'t own this slot.' };
+  if (space.anchorType) return { ok: false, description: `Already has a ${space.anchorType} anchor.` };
+  if (!anchors.typesAllowed.includes(anchorType)) {
+    return { ok: false, description: `Invalid anchor type: ${anchorType}. Allowed: ${anchors.typesAllowed.join(', ')}.` };
+  }
+
+  const cost = Math.round(space.basePrice * anchors.placeCostMultiplier);
+  if (player.cash < cost) {
+    return { ok: false, description: `Can't afford $${cost} to place ${anchorType} (cash $${player.cash}).` };
+  }
+
+  player.cash -= cost;
+  space.anchorType = anchorType;
+  space.anchorLevel = 0;
+  return {
+    ok: true,
+    description: `Placed ${anchorType} anchor on #${index} (b${space.borough}) for $${cost}. Cash $${player.cash}.`,
+  };
+}
+
+/**
+ * Expand an existing anchor by one level. Requires owning surrounding lots
+ * if config demands it. Max expandLevels.
+ */
+export function expandAnchor(state, playerId, index) {
+  const space = state.board[index];
+  const player = state.players[playerId];
+  const { anchors } = CONFIG;
+  if (!player) return { ok: false, description: 'Invalid player.' };
+  if (space.ownerId !== playerId) return { ok: false, description: 'You don\'t own this slot.' };
+  if (!space.anchorType) return { ok: false, description: 'No anchor placed here yet.' };
+  if (space.anchorLevel >= anchors.expandLevels) {
+    return { ok: false, description: `Already at max expansion level (${anchors.expandLevels}).` };
+  }
+
+  // check surrounding lot ownership
+  if (anchors.expandRequiresSurroundingLots) {
+    const neighbors = contiguousNeighbors(state.board, index);
+    const ownedNeighbors = neighbors.filter(i => state.board[i].ownerId === playerId);
+    const needOwned = space.anchorLevel + 1; // need 1 for lv1, 2 for lv2, etc.
+    if (ownedNeighbors.length < needOwned) {
+      return { ok: false, description: `Need ${needOwned} owned neighbor(s) for level ${space.anchorLevel + 1}, have ${ownedNeighbors.length}.` };
+    }
+  }
+
+  const cost = Math.round(space.basePrice * anchors.expandCostMultiplier);
+  if (player.cash < cost) {
+    return { ok: false, description: `Can't afford $${cost} to expand (cash $${player.cash}).` };
+  }
+
+  player.cash -= cost;
+  space.anchorLevel++;
+  applyHalo(state, index);
+  return {
+    ok: true,
+    description: `Expanded ${space.anchorType} on #${index} to level ${space.anchorLevel} for $${cost}. Cash $${player.cash}.`,
+  };
+}
+
+/** Effective rent for a space, applying build level, halo bonus, and anchor multiplier. */
 export function effectiveRent(space) {
-  const levelMult = 1 + space.buildLevel; // each level adds 1x base rent
+  if (space.anchorType) {
+    const { rentMultiplierByLevel } = CONFIG.anchors;
+    const mult = rentMultiplierByLevel[space.anchorLevel] ?? rentMultiplierByLevel[0];
+    return Math.round(space.baseRent * mult * (1 + space.haloBonus));
+  }
+  const levelMult = 1 + Math.max(0, space.buildLevel); // each level adds 1x base rent
   return Math.round(space.baseRent * levelMult * (1 + space.haloBonus));
 }
 
