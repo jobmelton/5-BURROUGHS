@@ -10,7 +10,7 @@ import { takeTurn, rollDice, sendToJail } from './turns.js';
 import { buildOnSpace, effectiveRent, canBuild, buildCost, placeAnchor } from './economy.js';
 import { botAI } from './bots.js';
 import { mortgageProperty, processPaydayDebts, isMortgaged } from './mortgages.js';
-import { playHit, playRICO, playInformant, playPardon } from './actions.js';
+import { playHit, playRICO, playInformant, playPardon, playExpose, playAccountant, playAudit, playJackpot } from './actions.js';
 import { drawFrom } from './decks.js';
 import { leaderboard, collectGodfatherTribute } from './season.js';
 import { saveGame, loadGame, hasSaveFile } from './persistence.js';
@@ -52,66 +52,121 @@ function prompt() { rl.question('\n> ', handleInput); }
 
 function print(msg) { console.log(msg); }
 
+// ---- ANSI colors -----------------------------------------------------------
+const C = {
+  reset: '\x1b[0m',
+  bold:  '\x1b[1m',
+  dim:   '\x1b[2m',
+  red:   '\x1b[31m',
+  green: '\x1b[32m',
+  yellow:'\x1b[33m',
+  blue:  '\x1b[34m',
+  magenta:'\x1b[35m',
+  cyan:  '\x1b[36m',
+  white: '\x1b[37m',
+  bgRed: '\x1b[41m',
+  bgGreen:'\x1b[42m',
+  bgYellow:'\x1b[43m',
+  bgBlue:'\x1b[44m',
+  bgMagenta:'\x1b[45m',
+};
+
+const BOROUGH_COLORS = [C.red, C.green, C.yellow, C.blue, C.magenta];
+function bColor(borough) { return BOROUGH_COLORS[(borough - 1) % 5]; }
+
 // ---- display helpers -------------------------------------------------------
 
 function showStatus() {
   recomputeNetWorth(state, human);
-  print(`\n--- ${human.name} | Turn ${turnNumber} ---`);
-  print(`Cash: $${human.cash}  |  Net worth: $${human.netWorth}  |  Position: #${human.position}`);
-  print(`Properties: ${human.propertyIds.length}  |  Roles: ${human.roles.map(r => r.role).join(', ') || 'none'}`);
-  if (human.debts.length) print(`Debts: ${human.debts.map(d => `$${d.principalRemaining}`).join(', ')}`);
-  if (human.status.jailed) print(`** IN JAIL (${human.status.jailTurns} turns left) **`);
+  print(`\n${C.bold}--- ${human.name} | Turn ${turnNumber} ---${C.reset}`);
+  print(`  ${C.green}Cash: $${human.cash}${C.reset}  |  Net worth: ${C.bold}$${human.netWorth}${C.reset}  |  Position: #${human.position}`);
+  print(`  Properties: ${C.cyan}${human.propertyIds.length}${C.reset}  |  Roles: ${C.yellow}${human.roles.map(r => r.role).join(', ') || 'none'}${C.reset}`);
+  if (human.debts.length) print(`  ${C.red}Debts: ${human.debts.map(d => `$${d.principalRemaining}`).join(', ')}${C.reset}`);
+  if (human.status.jailed) print(`  ${C.bgRed}${C.white}${C.bold} IN JAIL (${human.status.jailTurns} turns left) ${C.reset}`);
 }
 
 function showBoard() {
-  print('\n--- BOARD (your properties marked with *) ---');
-  const borough = {};
+  print(`\n${C.bold}--- BOARD ---${C.reset}`);
+  const boroughs = {};
   for (const sp of state.board) {
-    if (!borough[sp.borough]) borough[sp.borough] = [];
-    borough[sp.borough].push(sp);
+    if (!boroughs[sp.borough]) boroughs[sp.borough] = [];
+    boroughs[sp.borough].push(sp);
   }
-  for (const [b, spaces] of Object.entries(borough)) {
-    const line = spaces.map(sp => {
-      const owned = sp.ownerId === human.id ? '*' : sp.ownerId ? 'o' : '.';
-      const mort = sp.buildLevel < 0 ? 'M' : '';
-      if (sp.type === 'payday') return 'PAY';
-      if (sp.type === 'career') return 'CAR';
-      if (sp.type === 'jail') return 'JAL';
-      return `${owned}${mort}${sp.index}`;
+
+  for (const [b, spaces] of Object.entries(boroughs)) {
+    const bc = bColor(parseInt(b));
+    const cells = spaces.map(sp => {
+      const isHere = sp.index === human.position;
+      const prefix = isHere ? `${C.bold}${C.bgYellow}${C.white}` : '';
+      const suffix = isHere ? C.reset : '';
+
+      if (sp.type === 'payday') return `${prefix}${bc}PAY${suffix}${C.reset}`;
+      if (sp.type === 'career') return `${prefix}${bc}CAR${suffix}${C.reset}`;
+      if (sp.type === 'jail')   return `${prefix}${C.red}JAL${suffix}${C.reset}`;
+
+      let tag;
+      if (sp.ownerId === human.id) tag = `${C.bold}${C.cyan}*${sp.index}${C.reset}`;
+      else if (sp.ownerId) tag = `${C.dim}o${sp.index}${C.reset}`;
+      else tag = `${bc}.${sp.index}${C.reset}`;
+
+      if (sp.buildLevel < 0) tag += `${C.red}M${C.reset}`;
+      else if (sp.buildLevel > 0) tag += `${C.green}^${sp.buildLevel}${C.reset}`;
+      if (sp.anchorType) tag += `${C.yellow}A${C.reset}`;
+
+      return `${prefix}${tag}${suffix}`;
     }).join(' ');
-    print(`  Borough ${b}: ${line}`);
+    print(`  ${bc}${C.bold}B${b}${C.reset}: ${cells}`);
   }
-  print('  Legend: * = yours, o = owned, . = unowned, M = mortgaged');
+  print(`  ${C.dim}Legend: ${C.cyan}*${C.reset}${C.dim}=yours ${C.reset}${C.dim}o=owned .=free ${C.red}M${C.reset}${C.dim}=mortgaged ${C.green}^N${C.reset}${C.dim}=built ${C.yellow}A${C.reset}${C.dim}=anchor ${C.bgYellow} ${C.reset}${C.dim}=you are here${C.reset}`);
 }
 
 function showLeaderboard() {
   const lb = leaderboard(state);
-  print('\n--- LEADERBOARD ---');
+  print(`\n${C.bold}--- LEADERBOARD ---${C.reset}`);
   for (const e of lb.slice(0, 10)) {
-    const tag = e.player.id === human.id ? ' (you)' : '';
-    print(`  #${e.rank} ${e.player.name}${tag} — $${e.netWorth}`);
+    const isYou = e.player.id === human.id;
+    const tag = isYou ? ` ${C.cyan}(you)${C.reset}` : '';
+    const color = isYou ? C.bold + C.cyan : (e.rank <= 3 ? C.yellow : '');
+    print(`  ${color}#${e.rank} ${e.player.name}${tag}${C.reset} — $${e.netWorth}`);
   }
+}
+
+function showProperty(idx) {
+  const sp = state.board[idx];
+  if (!sp) { print('Invalid space index.'); return; }
+  const bc = bColor(sp.borough);
+  print(`\n${bc}${C.bold}--- Space #${idx} (${sp.type}, Borough ${sp.borough}) ---${C.reset}`);
+  print(`  Owner: ${sp.ownerId === human.id ? `${C.cyan}You${C.reset}` : sp.ownerId ? state.players[sp.ownerId]?.name || sp.ownerId : 'unowned'}`);
+  print(`  Base price: $${sp.basePrice}  |  Base rent: $${sp.baseRent}`);
+  print(`  Build level: ${sp.buildLevel < 0 ? `${C.red}mortgaged${C.reset}` : sp.buildLevel}`);
+  print(`  Effective rent: ${C.green}$${effectiveRent(sp)}${C.reset}`);
+  print(`  Halo bonus: ${sp.haloBonus > 0 ? `${C.yellow}+${Math.round(sp.haloBonus * 100)}%${C.reset}` : 'none'}`);
+  if (sp.anchorType) print(`  Anchor: ${C.yellow}${sp.anchorType}${C.reset} (level ${sp.anchorLevel})`);
 }
 
 function showHelp() {
   print(`
-Commands:
-  roll        — Roll dice and take your turn
-  buy         — Buy the property you landed on (if available)
-  pass        — Skip buying
-  build <#>   — Build on property # (must own, meet contiguity)
-  mortgage <#>— Mortgage property # for cash
-  hit <name>  — Play Hit card on a player
-  rico <name> — Play RICO card on a player
-  inform <name> — Play Informant on a player
-  pardon <name> — Play Pardon on a player
-  save        — Save the game
-  load        — Load a saved game
-  status      — Show your stats
-  board       — Show the board
-  scores      — Show leaderboard
-  help        — Show this help
-  quit        — Save and exit`);
+${C.bold}Commands:${C.reset}
+  ${C.cyan}roll${C.reset}          — Roll dice and take your turn
+  ${C.cyan}build <#>${C.reset}    — Build on property # (must own, meet contiguity)
+  ${C.cyan}anchor <#> <type>${C.reset} — Place an anchor (football/basketball/baseball/casino)
+  ${C.cyan}mortgage <#>${C.reset}  — Mortgage property # for cash
+  ${C.cyan}hit <name>${C.reset}    — Play Hit card on a player
+  ${C.cyan}rico <name>${C.reset}   — Play RICO card on a player
+  ${C.cyan}inform <name>${C.reset} — Play Informant on a player
+  ${C.cyan}pardon <name>${C.reset} — Play Pardon on a player
+  ${C.cyan}expose <name>${C.reset} — Expose a dirty official
+  ${C.cyan}account <name>${C.reset} — Skim cash via Accountant
+  ${C.cyan}audit <name>${C.reset}  — Back-tax a player's properties
+  ${C.cyan}jackpot${C.reset}       — Collect the free parking pool
+  ${C.cyan}inspect <#>${C.reset}   — View details of a space
+  ${C.cyan}save${C.reset}          — Save the game
+  ${C.cyan}load${C.reset}          — Load a saved game
+  ${C.cyan}status${C.reset}        — Show your stats
+  ${C.cyan}board${C.reset}         — Show the board
+  ${C.cyan}scores${C.reset}        — Show leaderboard
+  ${C.cyan}help${C.reset}          — Show this help
+  ${C.cyan}quit${C.reset}          — Save and exit`);
 }
 
 // ---- bot turn --------------------------------------------------------------
@@ -249,6 +304,53 @@ function handleInput(input) {
       break;
     }
 
+    case 'expose': {
+      const target = findPlayer(arg);
+      if (!target) { print(`No player found matching "${arg}".`); break; }
+      const result = playExpose(state, human.id, target.id);
+      print(result.description);
+      break;
+    }
+
+    case 'account': {
+      const target = findPlayer(arg);
+      if (!target) { print(`No player found matching "${arg}".`); break; }
+      const result = playAccountant(state, human.id, target.id);
+      print(result.description);
+      break;
+    }
+
+    case 'audit': {
+      const target = findPlayer(arg);
+      if (!target) { print(`No player found matching "${arg}".`); break; }
+      const result = playAudit(state, human.id, target.id);
+      print(result.description);
+      break;
+    }
+
+    case 'jackpot': {
+      const result = playJackpot(state, human.id);
+      print(result.description);
+      break;
+    }
+
+    case 'anchor': {
+      const anchorParts = arg.split(/\s+/);
+      const idx = parseInt(anchorParts[0]);
+      const type = anchorParts[1];
+      if (isNaN(idx) || !type) { print('Usage: anchor <space#> <type> (football/basketball/baseball/casino)'); break; }
+      const result = placeAnchor(state, human.id, idx, type);
+      print(result.description);
+      break;
+    }
+
+    case 'inspect': {
+      const idx = parseInt(arg);
+      if (isNaN(idx)) { print('Usage: inspect <space#>'); break; }
+      showProperty(idx);
+      break;
+    }
+
     case 'save': {
       state._turnNumber = turnNumber;
       const result = saveGame(state);
@@ -291,8 +393,9 @@ function handleInput(input) {
 }
 
 // ---- start -----------------------------------------------------------------
-print('=== 5 BOROUGHS ON THE TAKE ===');
-print(`Board: ${state.board.length} spaces | ${Object.values(state.players).filter(p => p.isBot).length} bots`);
-print('Type "help" for commands, "roll" to start playing.\n');
+print(`\n${C.bold}${C.red}=== 5 BOROUGHS ON THE TAKE ===${C.reset}`);
+print(`${C.dim}Board: ${state.board.length} spaces | ${Object.values(state.players).filter(p => p.isBot).length} bots${C.reset}`);
+if (loaded.ok) print(`${C.green}Resumed from save (turn ${turnNumber}).${C.reset}`);
+print(`Type ${C.cyan}help${C.reset} for commands, ${C.cyan}roll${C.reset} to start playing.\n`);
 showStatus();
 prompt();
