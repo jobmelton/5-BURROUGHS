@@ -13,23 +13,38 @@ import { mortgageProperty, processPaydayDebts, isMortgaged } from './mortgages.j
 import { playHit, playRICO, playInformant, playPardon } from './actions.js';
 import { drawFrom } from './decks.js';
 import { leaderboard, collectGodfatherTribute } from './season.js';
+import { saveGame, loadGame, hasSaveFile } from './persistence.js';
 
 // ---- setup -----------------------------------------------------------------
-const state = newGame();
-const human = newPlayer('You');
-state.players[human.id] = human;
-
-// give bots some starting properties so the board isn't empty
-Object.values(state.players).forEach(b => {
-  if (!b.isBot) return;
-  for (let i = 0; i < 2; i++) {
-    const lot = state.board.find(x => x.basePrice > 0 && x.ownerId === null);
-    if (lot) { lot.ownerId = b.id; b.propertyIds.push(lot.index); recomputeNetWorth(state, b); }
-  }
-});
-
+let state;
+let human;
 let turnNumber = 0;
-let pendingBuy = null;  // space the player just landed on and can buy
+let pendingBuy = null;
+let humanId = null;  // track which player id is the human
+
+// try loading a saved game, otherwise start fresh
+const loaded = hasSaveFile() ? loadGame() : { ok: false };
+if (loaded.ok) {
+  state = loaded.state;
+  human = Object.values(state.players).find(p => !p.isBot);
+  humanId = human?.id;
+  turnNumber = state._turnNumber || 0;
+  print('Loaded saved game!');
+} else {
+  state = newGame();
+  human = newPlayer('You');
+  state.players[human.id] = human;
+  humanId = human.id;
+
+  // give bots some starting properties so the board isn't empty
+  Object.values(state.players).forEach(b => {
+    if (!b.isBot) return;
+    for (let i = 0; i < 2; i++) {
+      const lot = state.board.find(x => x.basePrice > 0 && x.ownerId === null);
+      if (lot) { lot.ownerId = b.id; b.propertyIds.push(lot.index); recomputeNetWorth(state, b); }
+    }
+  });
+}
 
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
@@ -90,11 +105,13 @@ Commands:
   rico <name> — Play RICO card on a player
   inform <name> — Play Informant on a player
   pardon <name> — Play Pardon on a player
+  save        — Save the game
+  load        — Load a saved game
   status      — Show your stats
   board       — Show the board
   scores      — Show leaderboard
   help        — Show this help
-  quit        — Exit the game`);
+  quit        — Save and exit`);
 }
 
 // ---- bot turn --------------------------------------------------------------
@@ -163,6 +180,11 @@ function handleInput(input) {
 
       // bots play after human
       runBotTurns();
+
+      // auto-save after each turn
+      state._turnNumber = turnNumber;
+      saveGame(state);
+
       showStatus();
       break;
     }
@@ -227,6 +249,27 @@ function handleInput(input) {
       break;
     }
 
+    case 'save': {
+      state._turnNumber = turnNumber;
+      const result = saveGame(state);
+      print(result.description);
+      break;
+    }
+
+    case 'load': {
+      const result = loadGame();
+      if (result.ok) {
+        Object.assign(state, result.state);
+        human = Object.values(state.players).find(p => !p.isBot);
+        turnNumber = state._turnNumber || 0;
+        print(result.description);
+        showStatus();
+      } else {
+        print(result.description);
+      }
+      break;
+    }
+
     case 'status': showStatus(); break;
     case 'board':  showBoard();  break;
     case 'scores': showLeaderboard(); break;
@@ -234,7 +277,9 @@ function handleInput(input) {
 
     case 'quit':
     case 'exit':
-      print('Game over.');
+      state._turnNumber = turnNumber;
+      saveGame(state);
+      print('Game saved and exited.');
       rl.close();
       process.exit(0);
 

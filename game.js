@@ -11,6 +11,8 @@ import { contiguousOwnedRun, canBuild, buildCost, buildOnSpace, placeAnchor, exp
 import { takeTurn, sendToJail } from './turns.js';
 import { mortgageProperty, payOffMortgage, processPaydayDebts, isMortgaged } from './mortgages.js';
 import { leaderboard, collectGodfatherTribute, endSeason } from './season.js';
+import { saveGame, loadGame } from './persistence.js';
+import { unlinkSync } from 'node:fs';
 
 let _id = 0;
 const newId = (p) => `${p}-${++_id}`;
@@ -421,6 +423,39 @@ function botAITest() {
   }
 }
 
+// ---------------------------------------------------------------------------
+// SAVE/LOAD TEST — save game, modify state, load, verify restored.
+// ---------------------------------------------------------------------------
+function saveLoadTest() {
+  const s = newGame();
+  const player = newPlayer('SaveTester');
+  s.players[player.id] = player;
+  player.cash = 9999;
+  player.position = 42;
+
+  console.log('\n=== SAVE/LOAD TEST ===');
+
+  const savePath = 'test_save.json';
+  const sv = saveGame(s, savePath);
+  console.log(sv.description);
+
+  // modify state
+  player.cash = 0;
+  player.position = 0;
+  console.log(`After modify: cash=$${player.cash}, position=${player.position}`);
+
+  // load
+  const ld = loadGame(savePath);
+  console.log(ld.description);
+  const restored = Object.values(ld.state.players).find(p => p.name === 'SaveTester');
+  console.log(`Restored: cash=$${restored.cash}, position=${restored.position}`);
+  console.log(`Match? cash=${restored.cash === 9999}, position=${restored.position === 42}`);
+
+  // clean up test file
+  // clean up
+  try { unlinkSync(savePath); } catch {}
+}
+
 // run tests only when this file is the entry point
 const isMain = process.argv[1]?.replace(/\\/g, '/').endsWith('game.js');
 if (isMain) {
@@ -432,5 +467,6 @@ if (isMain) {
   anchorTest();
   casinoTest();
   botAITest();
+  saveLoadTest();
   seasonTest();
 }
