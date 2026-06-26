@@ -98,6 +98,20 @@ export const CONFIG = {
     cleanCityReward: 200,      // each clean holder's reward if the Law wins
   },
 
+  // ---- Action card effects --------------------------------------------------
+  actions: {
+    hit: {
+      maxRolesStolen: 1,           // how many roles the attacker takes per Hit
+    },
+    rico: {
+      minRolesToTarget: 3,         // boss must hold this many roles to be RICO-eligible
+      jailTurns: 3,                // how many turns the convicted boss sits in jail
+    },
+    informant: {
+      grantProtectionTurns: 5,     // how many turns the freed player stays protected
+    },
+  },
+
   // ---- Casino dice ---------------------------------------------------------
   casino: {
     // on landing on a casino, roll two dice:
