@@ -256,6 +256,10 @@ app.get('/api/games/:id/state', requireAuth, (req, res) => {
       haloBonus: sp.haloBonus,
       partnership: sp.partnership,
       isMine: sp.ownerId === myPlayer.id,
+      // next build step (cheapest) for the viewer's own lots — powers the Build list
+      nextBuild: sp.ownerId === myPlayer.id
+        ? (() => { const o = getBuildOptions(state, myPlayer.id, sp.index)[0]; return o ? { type: o.type, label: o.label, cost: o.cost, affordable: o.affordable } : null; })()
+        : undefined,
     })),
     notifications: getPlayerNotifications(state, myPlayer.id),
     freeParkingPool: state.freeParkingPool,

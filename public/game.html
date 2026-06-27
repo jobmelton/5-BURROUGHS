@@ -79,8 +79,11 @@
           <h2 class="text-gold text-lg mb-1">Your Profile</h2>
           <div class="text-sm space-y-1">
             <div class="flex justify-between"><span class="text-gray-400">Name</span><span id="myName" class="font-semibold">—</span></div>
-            <div class="flex justify-between"><span class="text-gray-400">Cash</span><span id="myCash" class="text-green-400 font-semibold">$0</span></div>
+            <div class="flex justify-between"><span class="text-gray-400">Cash on hand</span><span id="myCash" class="text-green-400 font-semibold">$0</span></div>
             <div class="flex justify-between"><span class="text-gray-400">Net Worth</span><span id="myNetWorth" class="text-gold font-semibold">$0</span></div>
+            <div class="flex justify-between"><span class="text-gray-400">Bank Debt</span><span id="myBankDebt" class="text-red-300">$0</span></div>
+            <div class="flex justify-between"><span class="text-gray-400">Mob Debt</span><span id="myMobDebt" class="text-red-400">$0</span></div>
+            <div class="flex justify-between"><span class="text-gray-400">Due next GO</span><span id="myDueGo" class="text-orange-300">$0</span></div>
             <div class="flex justify-between"><span class="text-gray-400">Position</span><span id="myPosition">0</span></div>
           </div>
         </div>
@@ -166,10 +169,11 @@
 
         <!-- Action Panel -->
         <div id="actionPanel" class="hidden">
-          <button id="rollBtn" class="btn btn-gold w-full text-lg py-3 mb-2">Roll Dice</button>
+          <button id="rollBtn" class="btn btn-gold w-full text-lg py-3 mb-2 hidden">Roll Dice</button>
           <div id="rollResult" class="hidden text-sm bg-dark/50 rounded p-2 mb-2 space-y-1"></div>
           <div id="optionsPanel" class="space-y-1.5 mb-2"></div>
           <div id="buildPanel" class="space-y-1.5 mb-2"></div>
+          <div id="borrowPanel" class="space-y-1.5 mb-2"></div>
           <button id="endTurnBtn" class="btn bg-gray-600 hover:bg-gray-500 text-white w-full hidden">End Turn</button>
         </div>
 
@@ -294,6 +298,7 @@ function renderAll() {
 // ---- Center view: pentagon board vs isometric neighborhood ------------------
 let boardView = 'pentagon';     // 'pentagon' | 'neighborhood'
 let hoodBorough = 1;            // borough shown in the neighborhood view
+let isRolling = false;          // guard so auto-roll fires once per turn
 
 function renderCenter() {
   if (boardView === 'neighborhood') renderNeighborhood(hoodBorough);
@@ -373,7 +378,22 @@ function renderPlayerInfo() {
   document.getElementById('myName').textContent = me.name;
   document.getElementById('myCash').textContent = `$${me.cash.toLocaleString()}`;
   document.getElementById('myNetWorth').textContent = `$${me.netWorth.toLocaleString()}`;
-  document.getElementById('myPosition').textContent = `Lot #${me.position}`;
+  document.getElementById('myPosition').textContent = (me.track && me.track !== 'outer') ? `In the ${me.track}` : `Lot #${me.position}`;
+
+  // Money summary — debt balances + what's auto-deducted at the next GO
+  const debts = me.debts || [];
+  const bankDebt = debts.filter(d => d.loanType === 'bank').reduce((s, d) => s + (d.principalRemaining || 0), 0);
+  const mobDebt = debts.filter(d => d.loanType === 'mob').reduce((s, d) => s + (d.principalRemaining || 0), 0);
+  const dueGo = debts.reduce((s, d) => s + Math.min(d.paymentPerGo || 0, d.principalRemaining || 0), 0);
+  document.getElementById('myBankDebt').textContent = `$${bankDebt.toLocaleString()}`;
+  document.getElementById('myMobDebt').textContent = `$${mobDebt.toLocaleString()}`;
+  document.getElementById('myDueGo').textContent = `$${dueGo.toLocaleString()}`;
+  const debtListEl = document.getElementById('debtList');
+  if (debtListEl) {
+    debtListEl.innerHTML = debts.length === 0
+      ? '<span class="text-gray-600 italic">None</span>'
+      : debts.map(d => `<div class="flex justify-between"><span class="${d.loanType === 'mob' ? 'text-red-400' : 'text-red-300'}">${d.loanType === 'mob' ? 'Mob' : 'Bank'} loan</span><span>$${(d.principalRemaining || 0).toLocaleString()} <span class="text-gray-500">($${d.paymentPerGo}/GO)</span></span></div>`).join('');
+  }
 
   // Status badges
   const badges = [];
@@ -711,12 +731,14 @@ function renderTurn() {
   if (state.isMyTurn) {
     actionPanel.classList.remove('hidden');
     renderBuildOptions(); // build/upgrade is available any time on your turn
-    if (!hasRolled) {
-      document.getElementById('rollBtn').classList.remove('hidden');
-      document.getElementById('rollBtn').disabled = false;
+    renderBorrow();
+    if (!hasRolled && !isRolling) {
+      // Auto-roll: the dice roll happens automatically at the start of your turn.
       document.getElementById('rollResult').classList.add('hidden');
       document.getElementById('optionsPanel').innerHTML = '';
       document.getElementById('endTurnBtn').classList.add('hidden');
+      isRolling = true;
+      rollDice();
     }
   } else {
     actionPanel.classList.add('hidden');
@@ -735,11 +757,13 @@ async function rollDice() {
   if (result.error) {
     btn.disabled = false;
     btn.textContent = 'Roll Dice';
+    isRolling = false;
     addFeedEntry(`Error: ${result.error}`);
     return;
   }
 
   hasRolled = true;
+  isRolling = false;
   btn.classList.add('hidden');
 
   // Show roll result
@@ -828,16 +852,49 @@ function renderBuildOptions() {
   const mySpaces = state.board.filter(s => s.isMine);
   if (mySpaces.length === 0) { panel.innerHTML = ''; return; }
 
-  panel.innerHTML = `<div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Build</div>
-    <div class="max-h-28 overflow-y-auto space-y-1">
-    ${mySpaces.map(s => `<button class="btn bg-emerald-800 hover:bg-emerald-700 text-white w-full text-left btn-sm"
-      onclick="doAction('build',{spaceIndex:${s.index}})">
-      <span class="text-[10px]">#${s.index} ${spaceLabel(s)} &mdash; Build</span>
-    </button>`).join('')}
+  panel.innerHTML = `<div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Build / Upgrade</div>
+    <div class="max-h-44 overflow-y-auto space-y-1">
+    ${mySpaces.map(s => {
+      const nb = s.nextBuild;
+      if (!nb) {
+        return `<div class="text-[10px] text-gray-600 px-1 py-1">#${s.index} ${spaceLabel(s)} — maxed / blocked</div>`;
+      }
+      const aff = nb.affordable;
+      return `<button class="btn btn-sm w-full text-left text-white ${aff ? 'bg-emerald-800 hover:bg-emerald-700' : 'bg-gray-800 opacity-60'}" ${aff ? '' : 'disabled'}
+        onclick="doAction('build',{spaceIndex:${s.index}})">
+        <span class="text-[10px] font-semibold">#${s.index} ${spaceLabel(s)} → ${nb.label}</span>
+        <span class="block text-[10px] ${aff ? 'text-green-300' : 'text-red-300'}">$${nb.cost.toLocaleString()}${aff ? '' : ' — over budget'}</span>
+      </button>`;
+    }).join('')}
     </div>`;
 }
 
+// Borrow: bank or mob loan (prompts for an amount, sends the request to the lender).
+function renderBorrow() {
+  const panel = document.getElementById('borrowPanel');
+  if (!state.isMyTurn) { panel.innerHTML = ''; return; }
+  panel.innerHTML = `<div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Borrow</div>
+    <div class="flex gap-1">
+      <button class="btn btn-sm w-full text-white bg-sky-800 hover:bg-sky-700" onclick="requestLoan('bank')">Bank Loan</button>
+      <button class="btn btn-sm w-full text-white bg-red-900 hover:bg-red-800" onclick="requestLoan('mob')">Mob Loan</button>
+    </div>`;
+}
+
+async function requestLoan(kind) {
+  const amtStr = prompt(`How much do you want to borrow from the ${kind === 'mob' ? 'mob' : 'bank'}?`, '500');
+  const amount = parseInt(amtStr, 10);
+  if (!amount || amount <= 0) return;
+  const action = kind === 'mob' ? 'borrow_mob' : 'borrow_bank';
+  const result = await api('POST', `/api/games/${GAME_ID}/action`, { action, params: { amount } });
+  addFeedEntry(result.error ? `Error: ${result.error}` : (result.description || 'Loan requested — waiting for the lender to set terms.'));
+  await refreshState();
+}
+
 // ---- Actions ----------------------------------------------------------------
+// Actions that commit your turn — taking one auto-ends the turn. (Borrowing and
+// mortgaging are financing moves and do NOT end the turn.)
+const TURN_ENDING_ACTIONS = ['buy', 'build', 'pass', 'partner', 'flip', 'mob_deal'];
+
 async function doAction(action, params = {}) {
   const result = await api('POST', `/api/games/${GAME_ID}/action`, { action, params });
   if (result.error) {
@@ -845,8 +902,13 @@ async function doAction(action, params = {}) {
   } else {
     addFeedEntry(result.description || `${action} completed`);
   }
-  await refreshState();
   closeLotPopup();
+  // Auto-end the turn after a committing action; otherwise just refresh.
+  if (!result.error && hasRolled && TURN_ENDING_ACTIONS.includes(action)) {
+    await endTurn();
+  } else {
+    await refreshState();
+  }
 }
 
 async function endTurn() {
