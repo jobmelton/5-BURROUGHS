@@ -1,0 +1,72 @@
+// ===========================================================================
+// 5 BOROUGHS ON THE TAKE — db.js
+// Simple JSON file-based persistence for users, games, and sessions.
+// ===========================================================================
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+
+const DATA_DIR = './data';
+if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
+
+function filePath(name) { return `${DATA_DIR}/${name}.json`; }
+
+function load(name) {
+  const fp = filePath(name);
+  if (!existsSync(fp)) return {};
+  return JSON.parse(readFileSync(fp, 'utf-8'));
+}
+
+function save(name, data) {
+  writeFileSync(filePath(name), JSON.stringify(data, null, 2), 'utf-8');
+}
+
+// ---- Users -----------------------------------------------------------------
+export function getUsers() { return load('users'); }
+export function saveUsers(users) { save('users', users); }
+export function getUser(email) { return getUsers()[email] || null; }
+export function createUser(email, name, passwordHash) {
+  const users = getUsers();
+  if (users[email]) return null;
+  users[email] = { email, name, passwordHash, createdAt: Date.now() };
+  saveUsers(users);
+  return users[email];
+}
+
+// ---- Sessions --------------------------------------------------------------
+export function getSessions() { return load('sessions'); }
+export function saveSessions(sessions) { save('sessions', sessions); }
+export function createSession(sessionId, email) {
+  const sessions = getSessions();
+  sessions[sessionId] = { email, createdAt: Date.now() };
+  saveSessions(sessions);
+}
+export function getSession(sessionId) { return getSessions()[sessionId] || null; }
+export function deleteSession(sessionId) {
+  const sessions = getSessions();
+  delete sessions[sessionId];
+  saveSessions(sessions);
+}
+
+// ---- Games -----------------------------------------------------------------
+export function getGames() { return load('games'); }
+export function saveGames(games) { save('games', games); }
+export function getGame(gameId) { return getGames()[gameId] || null; }
+export function saveGame(gameId, gameState) {
+  const games = getGames();
+  games[gameId] = gameState;
+  saveGames(games);
+}
+export function deleteGame(gameId) {
+  const games = getGames();
+  delete games[gameId];
+  saveGames(games);
+}
+export function listGames() {
+  const games = getGames();
+  return Object.values(games).map(g => ({
+    gameId: g.gameId,
+    status: g.status,
+    playerCount: Object.keys(g.players || {}).length,
+    turn: g._turnNumber || 0,
+    createdAt: g._createdAt,
+  }));
+}

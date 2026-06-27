@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>5 Boroughs on the Take</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            dark: '#1a1a2e',
+            card: '#16213e',
+            gold: '#d4a843',
+          },
+          fontFamily: {
+            inter: ['Inter', 'sans-serif'],
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+  </style>
+</head>
+<body class="bg-dark text-white min-h-screen flex flex-col">
+
+  <!-- Header -->
+  <header class="border-b border-gray-700/50 py-6">
+    <div class="max-w-3xl mx-auto px-4 text-center">
+      <h1 class="text-3xl sm:text-4xl font-extrabold tracking-widest uppercase text-gold">
+        5 Boroughs on the Take
+      </h1>
+      <p class="text-gray-500 text-sm mt-1 tracking-wide">Every borough has a price.</p>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="flex-1 flex items-start justify-center px-4 py-10">
+
+    <!-- Auth Panel -->
+    <div id="auth-panel" class="w-full max-w-md hidden">
+      <div class="bg-card rounded-lg border border-gray-700/40 overflow-hidden">
+        <!-- Tabs -->
+        <div class="flex border-b border-gray-700/40">
+          <button id="tab-login" onclick="switchTab('login')"
+            class="flex-1 py-3 text-sm font-semibold tracking-wide uppercase text-gold border-b-2 border-gold">
+            Login
+          </button>
+          <button id="tab-register" onclick="switchTab('register')"
+            class="flex-1 py-3 text-sm font-semibold tracking-wide uppercase text-gray-500 border-b-2 border-transparent hover:text-gray-300">
+            Register
+          </button>
+        </div>
+
+        <!-- Login Form -->
+        <form id="form-login" class="p-6 space-y-4" onsubmit="handleLogin(event)">
+          <div>
+            <label class="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Email</label>
+            <input type="email" name="email" required
+              class="w-full bg-dark border border-gray-700 rounded px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-gold" />
+          </div>
+          <div>
+            <label class="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Password</label>
+            <input type="password" name="password" required
+              class="w-full bg-dark border border-gray-700 rounded px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-gold" />
+          </div>
+          <div id="login-error" class="text-red-400 text-xs hidden"></div>
+          <button type="submit"
+            class="w-full bg-gold text-dark font-bold py-2 rounded hover:brightness-110 transition text-sm uppercase tracking-wide">
+            Login
+          </button>
+        </form>
+
+        <!-- Register Form -->
+        <form id="form-register" class="p-6 space-y-4 hidden" onsubmit="handleRegister(event)">
+          <div>
+            <label class="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Name</label>
+            <input type="text" name="name" required
+              class="w-full bg-dark border border-gray-700 rounded px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-gold" />
+          </div>
+          <div>
+            <label class="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Email</label>
+            <input type="email" name="email" required
+              class="w-full bg-dark border border-gray-700 rounded px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-gold" />
+          </div>
+          <div>
+            <label class="block text-xs text-gray-400 mb-1 uppercase tracking-wide">Password</label>
+            <input type="password" name="password" required minlength="6"
+              class="w-full bg-dark border border-gray-700 rounded px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-gold" />
+          </div>
+          <div id="register-error" class="text-red-400 text-xs hidden"></div>
+          <button type="submit"
+            class="w-full bg-gold text-dark font-bold py-2 rounded hover:brightness-110 transition text-sm uppercase tracking-wide">
+            Register
+          </button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Lobby Panel -->
+    <div id="lobby-panel" class="w-full max-w-2xl hidden">
+      <!-- Welcome bar -->
+      <div class="flex items-center justify-between mb-6">
+        <p class="text-lg font-semibold">Welcome, <span id="player-name" class="text-gold"></span></p>
+        <button onclick="handleLogout()"
+          class="text-xs text-gray-400 border border-gray-600 rounded px-3 py-1 hover:text-white hover:border-gray-400 transition uppercase tracking-wide">
+          Logout
+        </button>
+      </div>
+
+      <!-- Create Game -->
+      <button onclick="handleCreateGame()"
+        class="w-full bg-gold text-dark font-bold py-3 rounded hover:brightness-110 transition text-sm uppercase tracking-wide mb-6">
+        Create New Game
+      </button>
+
+      <!-- Open Games -->
+      <div class="bg-card rounded-lg border border-gray-700/40 p-5">
+        <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-400 mb-4">Open Games</h2>
+        <div id="games-list">
+          <p class="text-gray-600 text-sm">Loading...</p>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="border-t border-gray-700/50 py-4 text-center">
+    <p class="text-gray-600 text-xs tracking-wide uppercase">Built for the streets</p>
+  </footer>
+
+  <script>
+    let currentUser = null;
+    let refreshInterval = null;
+
+    // --- Tab switching ---
+    function switchTab(tab) {
+      const tabLogin = document.getElementById('tab-login');
+      const tabRegister = document.getElementById('tab-register');
+      const formLogin = document.getElementById('form-login');
+      const formRegister = document.getElementById('form-register');
+
+      if (tab === 'login') {
+        tabLogin.classList.add('text-gold', 'border-gold');
+        tabLogin.classList.remove('text-gray-500', 'border-transparent');
+        tabRegister.classList.remove('text-gold', 'border-gold');
+        tabRegister.classList.add('text-gray-500', 'border-transparent');
+        formLogin.classList.remove('hidden');
+        formRegister.classList.add('hidden');
+      } else {
+        tabRegister.classList.add('text-gold', 'border-gold');
+        tabRegister.classList.remove('text-gray-500', 'border-transparent');
+        tabLogin.classList.remove('text-gold', 'border-gold');
+        tabLogin.classList.add('text-gray-500', 'border-transparent');
+        formRegister.classList.remove('hidden');
+        formLogin.classList.add('hidden');
+      }
+    }
+
+    // --- Auth handlers ---
+    async function handleLogin(e) {
+      e.preventDefault();
+      const form = e.target;
+      const errEl = document.getElementById('login-error');
+      errEl.classList.add('hidden');
+
+      const body = {
+        email: form.email.value,
+        password: form.password.value,
+      };
+
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Login failed');
+        currentUser = data;
+        showLobby();
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.classList.remove('hidden');
+      }
+    }
+
+    async function handleRegister(e) {
+      e.preventDefault();
+      const form = e.target;
+      const errEl = document.getElementById('register-error');
+      errEl.classList.add('hidden');
+
+      const body = {
+        name: form.name.value,
+        email: form.email.value,
+        password: form.password.value,
+      };
+
+      try {
+        const res = await fetch('/api/register', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Registration failed');
+        currentUser = data;
+        showLobby();
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.classList.remove('hidden');
+      }
+    }
+
+    async function handleLogout() {
+      try {
+        await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' });
+      } catch (_) {}
+      currentUser = null;
+      if (refreshInterval) clearInterval(refreshInterval);
+      refreshInterval = null;
+      showAuth();
+    }
+
+    // --- Game handlers ---
+    async function handleCreateGame() {
+      try {
+        const res = await fetch('/api/games', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to create game');
+        window.location.href = '/game/' + data.id;
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    async function handleJoinGame(gameId) {
+      try {
+        const res = await fetch('/api/games/' + gameId + '/join', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed to join game');
+        window.location.href = '/game/' + gameId;
+      } catch (err) {
+        alert(err.message);
+      }
+    }
+
+    async function loadGames() {
+      const container = document.getElementById('games-list');
+      try {
+        const res = await fetch('/api/games', { credentials: 'same-origin' });
+        const games = await res.json();
+        if (!res.ok) throw new Error('Failed to load games');
+
+        if (!games.length) {
+          container.innerHTML = '<p class="text-gray-600 text-sm">No open games. Create one above.</p>';
+          return;
+        }
+
+        container.innerHTML = games.map(game => `
+          <div class="flex items-center justify-between py-3 border-b border-gray-700/30 last:border-0">
+            <div>
+              <p class="text-sm font-medium text-white">Game #${game.id}</p>
+              <p class="text-xs text-gray-500">${game.playerCount || game.players?.length || '?'} player(s)</p>
+            </div>
+            <button onclick="handleJoinGame('${game.id}')"
+              class="text-xs font-semibold text-dark bg-gold px-4 py-1.5 rounded hover:brightness-110 transition uppercase tracking-wide">
+              Join
+            </button>
+          </div>
+        `).join('');
+      } catch (_) {
+        container.innerHTML = '<p class="text-red-400 text-sm">Could not load games.</p>';
+      }
+    }
+
+    // --- View toggling ---
+    function showAuth() {
+      document.getElementById('auth-panel').classList.remove('hidden');
+      document.getElementById('lobby-panel').classList.add('hidden');
+    }
+
+    function showLobby() {
+      document.getElementById('auth-panel').classList.add('hidden');
+      document.getElementById('lobby-panel').classList.remove('hidden');
+      document.getElementById('player-name').textContent = currentUser.name || currentUser.email;
+      loadGames();
+      if (refreshInterval) clearInterval(refreshInterval);
+      refreshInterval = setInterval(loadGames, 5000);
+    }
+
+    // --- Init: check session ---
+    async function init() {
+      try {
+        const res = await fetch('/api/me', { credentials: 'same-origin' });
+        if (res.ok) {
+          currentUser = await res.json();
+          showLobby();
+        } else {
+          showAuth();
+        }
+      } catch (_) {
+        showAuth();
+      }
+    }
+
+    init();
+  </script>
+
+</body>
+</html>
