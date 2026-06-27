@@ -225,6 +225,25 @@ export const CONFIG = {
     copBailShare: 0.50,            // cop only gets 50% of bail (rest to court/bank sink)
   },
 
+  // ---- The Pit (inner ring) ------------------------------------------------
+  // Outer jail/tax/freeParking spaces are converted to two-way "pitEntry" blocks.
+  // Land on one and your NEXT roll pulls you into this shared inner ring, which
+  // you roll along until you hit an EXIT (back to GO) or a JAIL space (center
+  // jail — reuses the normal jail economy). Equal LUCK vs DEMISE, plus 5 exits.
+  pit: {
+    // ringLayout length defines the ring size. 5 sectors of [exit, luck, demise]:
+    // 5 exit / 5 luck (3 park + 2 career) / 5 demise (3 tax + 2 jail).
+    ringLayout: [
+      'exit', 'luckPark',   'demiseTax',
+      'exit', 'luckCareer', 'demiseJail',
+      'exit', 'luckPark',   'demiseTax',
+      'exit', 'luckCareer', 'demiseJail',
+      'exit', 'luckPark',   'demiseTax',
+    ],
+    entryRingIndex: 0,    // ring "mouth" — entry roll advances from here
+    releasePayday: true,  // pit EXIT and center-jail release send player to GO with payday
+  },
+
   // ---- Casino dice ---------------------------------------------------------
   casino: {
     // on landing on a casino, roll two dice:

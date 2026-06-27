@@ -7,9 +7,8 @@
 import { CONFIG } from './gameConfig.js';
 import { resolveRent } from './economy.js';
 import { drawFrom } from './decks.js';
-import { processTaxSquare } from './roles.js';
-import { processLoanPaymentsOnGo } from './lending.js';
 import { tickNotifications } from './notifications.js';
+import { moveAndResolve } from './movement.js';
 
 /** Roll two six-sided dice. */
 export function rollDice() {
@@ -18,10 +17,11 @@ export function rollDice() {
   return { d1, d2, total: d1 + d2, doubles: d1 === d2 };
 }
 
-/** Send a player to jail (used by RICO, landing on jail space, etc.). */
+/** Send a player to (center) jail — used by RICO/Hit, tests, etc. */
 export function sendToJail(player) {
   player.status.jailed = true;
   player.status.jailTurns = CONFIG.jail.maxTurns;
+  player.track = 'jail';
 }
 
 /**
@@ -41,44 +41,24 @@ export function takeTurn(state, playerId) {
   if (roll.doubles) rollTag += ' (doubles!)';
   parts.push(`${player.name} ${rollTag}`);
 
-  // --- jail check ---
-  if (player.status.jailed) {
-    if (CONFIG.jail.doublesEscape && roll.doubles) {
-      player.status.jailed = false;
-      player.status.jailTurns = 0;
-      parts.push('Doubles! Released from jail');
-      // freed player gets a normal turn with this roll — fall through
-    } else {
-      player.status.jailTurns--;
-      if (player.status.jailTurns <= 0) {
-        player.status.jailed = false;
-        player.status.jailTurns = 0;
-        parts.push('Jail time served — released');
-      } else {
-        parts.push(`Still in jail (${player.status.jailTurns} turn(s) left)`);
-        return { roll, description: parts.join(' → ') };
+  // --- move (handles jail, pit entry, pit ring, and the outer move) ---
+  const res = moveAndResolve(state, player, roll);
+  parts.push(...res.events);
+
+  if (res.done) {
+    // jail / pit / pit-entry fully handled — finish the turn
+    if (state.strikeBoroughs) {
+      for (const b of Object.keys(state.strikeBoroughs)) {
+        if (state.strikeBoroughs[b] > 0) state.strikeBoroughs[b]--;
       }
     }
+    tickNotifications(state);
+    return { roll, description: parts.join(' → ') };
   }
 
-  // --- move ---
-  const boardLen = state.board.length;
-  const oldPos = player.position;
-  const newPos = (oldPos + roll.total) % boardLen;
-  const passedStart = oldPos + roll.total >= boardLen;
-
-  if (passedStart) {
-    player.cash += CONFIG.money.paydayBase;
-
-    // process loan payments on GO
-    const loanResults = processLoanPaymentsOnGo(state, player.id);
-    for (const d of loanResults.descriptions) parts.push(d);
-  }
-  player.position = newPos;
-
-  const space = state.board[newPos];
-  parts.push(`moved to #${newPos} ${space.type} (borough ${space.borough})`);
-  if (passedStart) parts.push(`Payday! +$${CONFIG.money.paydayBase}`);
+  // --- landed on an OUTER space: resolve property / career here ---
+  const space = res.space;
+  parts.push(`moved to #${player.position} ${space.type} (borough ${space.borough})`);
 
   // --- career-draw triggers ---
   const triggerCareer =
@@ -92,13 +72,7 @@ export function takeTurn(state, playerId) {
     space.type === 'anchorSlot' ||
     space.type.startsWith('abandoned');
 
-  if (space.type === 'jail') {
-    sendToJail(player);
-    parts.push(`Busted! Sent to jail for ${CONFIG.jail.maxTurns} turns`);
-  } else if (space.type === 'tax') {
-    const taxResult = processTaxSquare(state, player.id, space.borough);
-    parts.push(taxResult.description);
-  } else if (isProperty && space.ownerId === null) {
+  if (isProperty && space.ownerId === null) {
     // unowned buyable space
     if (player.cash >= space.basePrice) {
       player.cash -= space.basePrice;

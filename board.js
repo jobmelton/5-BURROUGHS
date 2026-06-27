@@ -20,9 +20,9 @@ const BOROUGH_LAYOUT = [
   'vacantLot', 'abandonedStore', 'abandonedStripMall',
   'vacantLot', 'anchorSlot',                   // casino/stadium anchor
   'abandonedApartment', 'vacantLot', 'abandonedCondoTower',
-  'freeParking',                                // mid-borough free parking
+  'pitEntry',                                   // mid-borough pit entrance (was free parking)
   'abandonedSkyrise',                          // premium lot — expensive but huge potential
-  'freeParking', 'tax', 'jail',                // second free parking + tax square + jail
+  'pitEntry', 'pitEntry', 'pitEntry',          // pit entrances (were free parking / tax / jail)
 ];
 
 /** base price for a space given its borough and its index within that borough */
@@ -43,7 +43,7 @@ export function buildBoard() {
   let index = 0;
   for (let borough = 1; borough <= CONFIG.careers.boroughs; borough++) {
     BOROUGH_LAYOUT.forEach((type, idxInBorough) => {
-      const isPlayable = ![ 'payday', 'career', 'jail', 'freeParking', 'tax' ].includes(type);
+      const isPlayable = ![ 'payday', 'career', 'pitEntry' ].includes(type);
       const price = isPlayablePrice(type) ? priceFor(borough, idxInBorough, type) : 0;
       board.push({
         index,

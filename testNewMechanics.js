@@ -47,10 +47,13 @@ test('Board has 90 spaces (5 boroughs x 18)', () => {
   const board = buildBoard();
   assert(board.length === 90, `Got ${board.length}`);
 });
-test('Each borough has a tax square', () => {
+test('Each borough has pit entrances (jail/tax/free-parking converted)', () => {
   const board = buildBoard();
   for (let b = 1; b <= 5; b++) {
-    assert(board.some(sp => sp.borough === b && sp.type === 'tax'), `No tax in borough ${b}`);
+    assert(board.some(sp => sp.borough === b && sp.type === 'pitEntry'), `No pitEntry in borough ${b}`);
+  }
+  for (const t of ['tax', 'jail', 'freeParking']) {
+    assert(!board.some(sp => sp.type === t), `outer board still has ${t}`);
   }
 });
 

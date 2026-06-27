@@ -4,7 +4,7 @@
   "type": "module",
   "description": "Mob-themed async board game — 5 boroughs, roles, action cards, web multiplayer.",
   "scripts": {
-    "test": "node game.js && node testActions.js && node testNewMechanics.js",
+    "test": "node game.js && node testActions.js && node testNewMechanics.js && node testPit.js",
     "play": "node play.js",
     "sim": "node simulation.js",
     "start": "node server.js",

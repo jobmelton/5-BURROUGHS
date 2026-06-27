@@ -5,6 +5,7 @@
 // ===========================================================================
 import { CONFIG } from './gameConfig.js';
 import { buildBoard } from './board.js';
+import { buildPit } from './movement.js';
 import { buildCareerPool, buildActionPool } from './decks.js';
 import { desiredBotCount, onHumanJoin, dissolvePlayer, botAI } from './bots.js';
 import { contiguousOwnedRun, canBuild, buildCost, buildOnSpace, placeAnchor, expandAnchor, effectiveRent, resolveRent, catchUpStake, processBossUpkeep, buildingCostSplit, distributeTaxPool, checkCleanCityWin } from './economy.js';
@@ -20,9 +21,9 @@ const newId = (p) => `${p}-${++_id}`;
 export function newPlayer(name, isBot = false) {
   return {
     id: newId(isBot ? 'bot' : 'p'), name, isBot,
-    cash: CONFIG.money.startingCash, position: 0,
+    cash: CONFIG.money.startingCash, position: 0, track: 'outer',
     propertyIds: [], roles: [], dormantRoles: [], hand: [], debts: [],
-    status: { protectedByCopId: null, ownedByBossId: null, jailed: false, jailTurns: 0, hasMobDebt: false, roleDirty: false },
+    status: { protectedByCopId: null, ownedByBossId: null, jailed: false, jailTurns: 0, hasMobDebt: false, roleDirty: false, pendingPitEntry: false, pitEntryBorough: null },
     allianceIds: [], netWorth: CONFIG.money.startingCash,
   };
 }
@@ -31,6 +32,7 @@ export function newGame() {
   const state = {
     gameId: newId('game'),
     board: buildBoard(),
+    pit: buildPit(),
     players: {},
     careerPool: buildCareerPool(),
     actionPool: buildActionPool(),
@@ -161,17 +163,17 @@ function jailTest() {
   }
   console.log(`Released after ${t} turn(s). jailed=${human.status.jailed}`);
 
-  // verify landing on jail space sends player to jail
-  const jailSpace = s.board.find(sp => sp.type === 'jail');
-  console.log(`\nJail space exists on board at #${jailSpace.index} (borough ${jailSpace.borough})`);
+  // jail now lives inside the pit — verify the outer board routes through entries
   human.status.jailed = false;
   human.status.jailTurns = 0;
-  human.position = jailSpace.index - 2; // position so we could land on it
-  // manually place to test
-  human.position = jailSpace.index;
-  // simulate what takeTurn does when landing on jail
-  sendToJail(human);
-  console.log(`Manually landed on jail → jailed=${human.status.jailed}, turns=${human.status.jailTurns}`);
+  human.track = 'outer';
+  const entry = s.board.find(sp => sp.type === 'pitEntry');
+  console.log(`\nPit entrance on board at #${entry.index} (borough ${entry.borough})`);
+  human.position = entry.index;
+  human.status.pendingPitEntry = true;
+  human.status.pitEntryBorough = entry.borough;
+  takeTurn(s, human.id); // next roll pulls the player into the pit
+  console.log(`Entered the pit → track=${human.track}, pos=${human.position}`);
 }
 
 // ---------------------------------------------------------------------------
