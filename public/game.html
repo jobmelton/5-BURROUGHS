@@ -45,14 +45,16 @@
     .svg-space:hover { transform: scale(1.25); }
     .svg-me > rect { animation: pulse-gold 1.2s ease-in-out infinite; }
     @keyframes token-bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
-    .badge { @apply text-xs px-2 py-0.5 rounded-full font-semibold; }
-    .btn { @apply px-3 py-1.5 rounded font-semibold text-sm transition-colors duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed; }
-    .btn-gold { @apply bg-gold text-dark hover:bg-gold-dim; }
-    .btn-sm { @apply px-2 py-1 text-xs rounded; }
-    .feed-entry { @apply text-xs border-b border-white/5 py-1.5 px-2; }
-    .mobile-tab { @apply flex-1 text-center py-2 text-sm font-semibold cursor-pointer transition-colors; }
-    .mobile-tab.active { @apply text-gold border-b-2 border-gold; }
-    .mobile-tab:not(.active) { @apply text-gray-400; }
+    /* Plain CSS (the Tailwind Play CDN does NOT process @apply in a <style> block). */
+    .badge { font-size: 0.75rem; padding: 0.125rem 0.5rem; border-radius: 9999px; font-weight: 600; display: inline-block; }
+    .btn { padding: 0.375rem 0.75rem; border-radius: 0.375rem; font-weight: 600; font-size: 0.875rem; transition: background-color .15s, color .15s, filter .15s; cursor: pointer; border: none; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-gold { background: #d4a843; color: #0d0c0b; }
+    .btn-gold:hover:not(:disabled) { background: #a8853a; }
+    .btn-sm { padding: 0.25rem 0.5rem; font-size: 0.75rem; border-radius: 0.375rem; }
+    .feed-entry { font-size: 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.05); padding: 0.375rem 0.5rem; }
+    .mobile-tab { flex: 1 1 0%; text-align: center; padding: 0.5rem 0; font-size: 0.875rem; font-weight: 600; cursor: pointer; transition: color .15s; color: #9ca3af; }
+    .mobile-tab.active { color: #d4a843; border-bottom: 2px solid #d4a843; }
   </style>
 </head>
 <body class="bg-dark min-h-screen">
