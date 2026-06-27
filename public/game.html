@@ -687,7 +687,7 @@ function inspectLot(index) {
   const actEl = document.getElementById('lotActions');
   actEl.innerHTML = '';
   if (sp.isMine && state.isMyTurn) {
-    actEl.innerHTML = `<button class="btn btn-gold btn-sm w-full" onclick="doAction('build',{spaceIndex:${sp.index},buildingType:'auto'})">Build / Upgrade</button>`;
+    actEl.innerHTML = `<button class="btn btn-gold btn-sm w-full" onclick="doAction('build',{spaceIndex:${sp.index}})">Build / Upgrade</button>`;
   }
 
   document.getElementById('lotPopup').classList.remove('hidden');
@@ -710,12 +710,12 @@ function renderTurn() {
   const actionPanel = document.getElementById('actionPanel');
   if (state.isMyTurn) {
     actionPanel.classList.remove('hidden');
+    renderBuildOptions(); // build/upgrade is available any time on your turn
     if (!hasRolled) {
       document.getElementById('rollBtn').classList.remove('hidden');
       document.getElementById('rollBtn').disabled = false;
       document.getElementById('rollResult').classList.add('hidden');
       document.getElementById('optionsPanel').innerHTML = '';
-      document.getElementById('buildPanel').innerHTML = '';
       document.getElementById('endTurnBtn').classList.add('hidden');
     }
   } else {
