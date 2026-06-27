@@ -167,15 +167,17 @@
           <div id="turnLabel" class="text-sm font-semibold text-gray-300 mt-0.5">—</div>
         </div>
 
-        <!-- Action Panel -->
+        <!-- Action Panel (only on your turn: roll result, landing options, end) -->
         <div id="actionPanel" class="hidden">
           <button id="rollBtn" class="btn btn-gold w-full text-lg py-3 mb-2 hidden">Roll Dice</button>
           <div id="rollResult" class="hidden text-sm bg-dark/50 rounded p-2 mb-2 space-y-1"></div>
           <div id="optionsPanel" class="space-y-1.5 mb-2"></div>
-          <div id="buildPanel" class="space-y-1.5 mb-2"></div>
           <div id="borrowPanel" class="space-y-1.5 mb-2"></div>
           <button id="endTurnBtn" class="btn bg-gray-600 hover:bg-gray-500 text-white w-full hidden">End Turn</button>
         </div>
+
+        <!-- Build / Upgrade — standalone, available any time (even while waiting) -->
+        <div id="buildPanel" class="space-y-1.5"></div>
 
         <!-- Notifications -->
         <div>
@@ -291,6 +293,7 @@ function renderAll() {
   renderPlayerInfo();
   renderCenter();
   renderTurn();
+  renderBuildOptions();   // build is standalone — available any turn, even while waiting
   renderNotifications();
   renderFeed();
 }
@@ -730,7 +733,6 @@ function renderTurn() {
   const actionPanel = document.getElementById('actionPanel');
   if (state.isMyTurn) {
     actionPanel.classList.remove('hidden');
-    renderBuildOptions(); // build/upgrade is available any time on your turn
     renderBorrow();
     if (!hasRolled && !isRolling) {
       // Auto-roll: the dice roll happens automatically at the start of your turn.
@@ -852,7 +854,7 @@ function renderBuildOptions() {
   const mySpaces = state.board.filter(s => s.isMine);
   if (mySpaces.length === 0) { panel.innerHTML = ''; return; }
 
-  panel.innerHTML = `<div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Build / Upgrade</div>
+  panel.innerHTML = `<div class="text-xs text-gold/80 uppercase tracking-wider mb-1 flex items-center gap-1">Build / Upgrade <span class="text-[9px] text-gray-500 normal-case tracking-normal">· anytime</span></div>
     <div class="max-h-44 overflow-y-auto space-y-1">
     ${mySpaces.map(s => {
       const nb = s.nextBuild;
@@ -893,7 +895,7 @@ async function requestLoan(kind) {
 // ---- Actions ----------------------------------------------------------------
 // Actions that commit your turn — taking one auto-ends the turn. (Borrowing and
 // mortgaging are financing moves and do NOT end the turn.)
-const TURN_ENDING_ACTIONS = ['buy', 'build', 'pass', 'partner', 'flip', 'mob_deal'];
+const TURN_ENDING_ACTIONS = ['buy', 'pass', 'partner', 'flip', 'mob_deal'];
 
 async function doAction(action, params = {}) {
   const result = await api('POST', `/api/games/${GAME_ID}/action`, { action, params });
