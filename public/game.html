@@ -216,7 +216,7 @@ const ROLE_COLORS = {
   Inspector:'#1abc9c', CasinoManager:'#e91e63', Lawyer:'#00bcd4', Judge:'#607d8b', Banker:'#8bc34a'
 };
 const SPACE_LABELS = {
-  payday:'PAY', career:'CAR', jail:'JAL', freeParking:'FP', tax:'TAX',
+  payday:'PAY', career:'CAR', pitEntry:'PIT', jail:'JAL', freeParking:'FP', tax:'TAX',
   vacantLot:'VL', abandonedHouse:'AH', abandonedStore:'AS', abandonedStripMall:'SM',
   abandonedApartment:'AP', abandonedCondoTower:'CT', abandonedSkyrise:'SK', anchorSlot:'AN'
 };
@@ -389,8 +389,12 @@ function renderPlayerInfo() {
 // ---- SVG pentagon board geometry --------------------------------------------
 const BOARD_VIEW = 1000;
 const BOARD_CX = 500, BOARD_CY = 530, BOARD_R = 430, SPACE_SZ = 30;
-const SPECIAL_BG = { jail:'#4a1a1a', freeParking:'#1a3a1a', tax:'#3a2a1a', career:'#1a1a3a', payday:'#2a2a1a' };
+const INNER_R = 215, PIT_SZ = 26; // pit ring radius + space size
+const SPECIAL_BG = { pitEntry:'#3a2f1a', career:'#1a1a3a', payday:'#2a2a1a' };
 const TOKEN_COLORS = ['#d4a843','#e74c3c','#2ecc71','#3498db','#9b59b6','#e67e22','#1abc9c','#e91e63'];
+// Pit ring space styling by kind.
+const PIT_KIND_BG = { exit:'#1a3a1a', luckPark:'#1f3a24', luckCareer:'#1a1a3a', demiseTax:'#3a2a1a', demiseJail:'#4a1a1a' };
+const PIT_KIND_LABEL = { exit:'EXIT', luckPark:'FP', luckCareer:'CAR', demiseTax:'TAX', demiseJail:'JAIL' };
 // Maps each game buildingType -> the sliced art slug in /assets/buildings/.
 // Art is a smaller set than the 27 build types, so several types reuse the closest match.
 const BUILDING_ART = {
@@ -425,17 +429,47 @@ function computeSpacePositions() {
   return pos;
 }
 
+// Map each pit ring index to an {x,y} on the inner circle (mouth at top).
+function computePitPositions() {
+  const ring = state.pit?.ring || [];
+  const pos = {};
+  ring.forEach((s, i) => {
+    const ang = (-90 + i * (360 / ring.length)) * Math.PI / 180;
+    pos[i] = { x: BOARD_CX + INNER_R * Math.cos(ang), y: BOARD_CY + INNER_R * Math.sin(ang) };
+  });
+  return pos;
+}
+
 function renderMap() {
   const mapEl = document.getElementById('boroughMap');
   const pos = computeSpacePositions();
   const SZ = SPACE_SZ, half = SZ / 2;
   const parts = [`<svg viewBox="0 0 ${BOARD_VIEW} ${BOARD_VIEW}" class="w-full" preserveAspectRatio="xMidYMid meet" style="height:100%;max-height:82vh;display:block;margin:auto">`];
 
-  // Pentagon body (the future "pit") + center title
+  // Pentagon body
   const poly = [0,1,2,3,4].map(boardCorner).map(c => `${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' ');
   parts.push(`<polygon points="${poly}" fill="#16110d" stroke="#3a2f22" stroke-width="2"/>`);
-  parts.push(`<text x="${BOARD_CX}" y="${BOARD_CY-6}" text-anchor="middle" fill="#5a4a32" font-size="36" font-weight="bold" letter-spacing="3">5 BOROUGHS</text>`);
-  parts.push(`<text x="${BOARD_CX}" y="${BOARD_CY+22}" text-anchor="middle" fill="#3a2f22" font-size="14" letter-spacing="4">THE PIT · coming soon</text>`);
+
+  // --- The Pit: inner ring + center jail ---
+  const pitPos = computePitPositions();
+  const ring = state.pit?.ring || [];
+  // faint ring guide
+  if (ring.length) {
+    parts.push(`<circle cx="${BOARD_CX}" cy="${BOARD_CY}" r="${INNER_R}" fill="none" stroke="#2a2014" stroke-width="1.5" stroke-dasharray="3 5"/>`);
+  }
+  ring.forEach((s, i) => {
+    const p = pitPos[i];
+    const ph = PIT_SZ / 2;
+    const bg = PIT_KIND_BG[s.kind] || '#1a1512';
+    const lbl = PIT_KIND_LABEL[s.kind] || s.kind.slice(0, 3).toUpperCase();
+    parts.push(`<g><rect x="${(p.x-ph).toFixed(1)}" y="${(p.y-ph).toFixed(1)}" width="${PIT_SZ}" height="${PIT_SZ}" rx="4" fill="${bg}" stroke="#5a4a32" stroke-width="1.2"/>`
+      + `<text x="${p.x.toFixed(1)}" y="${(p.y+3).toFixed(1)}" text-anchor="middle" fill="#c9b483" font-size="7" font-weight="bold">${lbl}</text></g>`);
+  });
+  // center jail node
+  const jW = 70, jH = 50;
+  parts.push(`<rect x="${BOARD_CX-jW/2}" y="${BOARD_CY-jH/2}" width="${jW}" height="${jH}" rx="6" fill="#3a1414" stroke="#7a2a2a" stroke-width="2"/>`);
+  parts.push(`<text x="${BOARD_CX}" y="${(BOARD_CY-4)}" text-anchor="middle" fill="#e0a0a0" font-size="15" font-weight="bold" letter-spacing="2">JAIL</text>`);
+  parts.push(`<text x="${BOARD_CX}" y="${(BOARD_CY+13)}" text-anchor="middle" fill="#8a5a5a" font-size="8">THE PIT</text>`);
 
   // Spaces
   for (const sp of state.board) {
@@ -446,7 +480,7 @@ function renderMap() {
     let stroke = hex + '66', sw = 1.5;
     if (sp.isMine) { stroke = '#d4a843'; sw = 3; }
     else if (sp.ownerId) { stroke = '#8a8a8a'; sw = 2.5; }
-    const isMe = state.me.position === sp.index;
+    const isMe = (state.me.track || 'outer') === 'outer' && state.me.position === sp.index;
     const x = (p.x - half).toFixed(1), y = (p.y - half).toFixed(1);
     const label = SPACE_LABELS[sp.type] || sp.type.substring(0, 2).toUpperCase();
 
@@ -478,28 +512,43 @@ function renderMap() {
     parts.push(`<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="${BOROUGH_HEX['b'+b]}" font-size="18" font-weight="bold" style="paint-order:stroke" stroke="#0d1117" stroke-width="3">${BOROUGH_NAMES[b-1]}</text>`);
   }
 
-  // Player tokens — fanned just outside the ring along the edge
-  const byPos = {};
+  // Player tokens — placed per track: outer edge, pit ring, or center jail.
+  const groups = {};
   (state.players || []).forEach(pl => {
-    if (typeof pl.position !== 'number') return;
-    (byPos[pl.position] = byPos[pl.position] || []).push(pl);
+    const track = pl.track || 'outer';
+    const key = track === 'jail' ? 'jail' : `${track}:${pl.position}`;
+    (groups[key] = groups[key] || []).push(pl);
   });
-  for (const [idx, group] of Object.entries(byPos)) {
-    const p0 = pos[idx];
-    if (!p0) continue;
-    const dx = p0.x - BOARD_CX, dy = p0.y - BOARD_CY, len = Math.hypot(dx, dy) || 1;
-    const ux = dx / len, uy = dy / len, px = -uy, py = ux; // outward + along-edge
+  for (const [key, group] of Object.entries(groups)) {
+    const [track, posStr] = key.split(':');
+    let anchor = null, px = 0, py = 0;
+    if (track !== 'jail') {
+      const p0 = track === 'pit' ? pitPos[Number(posStr)] : pos[Number(posStr)];
+      if (!p0) continue;
+      // pit tokens sit just inward of the ring; outer tokens just outside the edge
+      const toC = track === 'pit' ? 1 : -1;
+      const dx = (p0.x - BOARD_CX) * toC, dy = (p0.y - BOARD_CY) * toC, len = Math.hypot(dx, dy) || 1;
+      const ux = dx / len, uy = dy / len;
+      px = -uy; py = ux;
+      const off = (track === 'pit' ? PIT_SZ / 2 : half) + 8;
+      anchor = { x: p0.x + ux * off, y: p0.y + uy * off };
+    }
     group.forEach((pl, k) => {
-      const spread = (k - (group.length - 1) / 2) * 12;
-      const base = half + 8;
-      const tx = (p0.x + ux * base + px * spread).toFixed(1);
-      const ty = (p0.y + uy * base + py * spread).toFixed(1);
+      const spread = (k - (group.length - 1) / 2) * 13;
+      let tx, ty;
+      if (track === 'jail') {
+        tx = BOARD_CX + spread;
+        ty = BOARD_CY - jH / 2 - 11;
+      } else {
+        tx = anchor.x + px * spread;
+        ty = anchor.y + py * spread;
+      }
       const isMe = pl.id === state.me.id;
       const pIdx = state.players.findIndex(x => x.id === pl.id);
       const color = isMe ? '#d4a843' : TOKEN_COLORS[(pIdx % (TOKEN_COLORS.length - 1)) + 1];
       const initial = (pl.name || '?').charAt(0).toUpperCase();
-      parts.push(`<g pointer-events="none"><circle cx="${tx}" cy="${ty}" r="${isMe ? 9 : 8}" fill="${color}" stroke="#0d1117" stroke-width="1.5"/>` +
-        `<text x="${tx}" y="${(parseFloat(ty)+3.5).toFixed(1)}" text-anchor="middle" fill="${isMe ? '#1a1a2e' : '#fff'}" font-size="10" font-weight="bold">${initial}</text></g>`);
+      parts.push(`<g pointer-events="none"><circle cx="${tx.toFixed(1)}" cy="${ty.toFixed(1)}" r="${isMe ? 9 : 8}" fill="${color}" stroke="#0d0c0b" stroke-width="1.5"/>` +
+        `<text x="${tx.toFixed(1)}" y="${(ty+3.5).toFixed(1)}" text-anchor="middle" fill="${isMe ? '#1a1a2e' : '#fff'}" font-size="10" font-weight="bold">${initial}</text></g>`);
     });
   }
 
