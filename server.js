@@ -34,7 +34,13 @@ const PORT = process.env.PORT || 3000;
 // ---- Middleware ------------------------------------------------------------
 app.use(express.json());
 app.use(cookieParser());
-app.use(express.static(join(__dirname, 'public')));
+app.use(express.static(join(__dirname, 'public'), {
+  // Never let the browser serve a stale HTML page (which can redirect to a dead
+  // /game/<id>). HTML always revalidates; hashed assets keep normal caching.
+  setHeaders: (res, filePath) => {
+    if (filePath.endsWith('.html')) res.setHeader('Cache-Control', 'no-cache');
+  },
+}));
 
 // simple password hash (not bcrypt since it needs native)
 function hashPw(pw) { return createHash('sha256').update(pw).digest('hex'); }
@@ -556,8 +562,9 @@ function updateNetWorth(state, player) {
 }
 
 // ---- Serve frontend --------------------------------------------------------
-app.get('/', (req, res) => res.sendFile(join(__dirname, 'public', 'index.html')));
-app.get('/game/:id', (req, res) => res.sendFile(join(__dirname, 'public', 'game.html')));
+const noCacheHtml = { headers: { 'Cache-Control': 'no-cache' } };
+app.get('/', (req, res) => res.sendFile(join(__dirname, 'public', 'index.html'), noCacheHtml));
+app.get('/game/:id', (req, res) => res.sendFile(join(__dirname, 'public', 'game.html'), noCacheHtml));
 
 // ---- JSON error handler ----------------------------------------------------
 // Defense-in-depth: any uncaught error in a route returns JSON, never a raw
