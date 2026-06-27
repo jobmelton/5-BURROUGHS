@@ -23,14 +23,10 @@ export const CONFIG = {
     catchUpFloor: 1500,          // never less than the turn-1 amount
     catchUpFractionOfAvg: 0.6,   // catch-up = max(floor, 0.6 * avg human net worth)
     paydayBase: 200,             // base income for passing the payday space (GO)
-    propertyTaxBrackets: [       // progressive tax per UNDEVELOPED lot when passing GO
-      { upTo: 3, perLot: 10 },   // lots 1-3: $10 each
-      { upTo: 6, perLot: 30 },   // lots 4-6: $30 each
-      { upTo: 10, perLot: 75 },  // lots 7-10: $75 each
-      { upTo: 15, perLot: 150 }, // lots 11-15: $150 each — serious pain
-      { upTo: 99, perLot: 300 }, // lots 16+: $300 each — empire tax
-    ],
-    builtPropertyTaxDiscount: 0.80, // built properties pay only 20% of the tax (80% discount)
+    propertyTaxRate: 0.02,         // 2% of total property VALUE per GO (scales with empire size)
+    emptyLotSurcharge: 0.03,      // empty (unbuilt) lots pay an EXTRA 3% (total 5%) — develop or lose money
+    maxPropertiesBeforeSurtax: 8,  // after 8 properties, additional 1% per lot on ALL properties
+    surtaxPerExtraLot: 0.01,      // 1% extra per lot over the cap
     maxActiveRoles: 3,           // max active roles per player; extras go dormant
   },
 
@@ -178,7 +174,17 @@ export const CONFIG = {
     politicianTaxSplit: true,  // taxes split among politicians in play
     cleanCopFine: 100,         // exposed cop pays this to stay clean
     cleanCityReward: 200,      // each clean holder's reward if the Law wins
+
+    // --- Role income buffs (balancing weak roles) ---
+    inspectorPermitFee: 0.03,       // inspector earns 3% of ALL build costs in their borough (automatic)
+    laborBossWageFee: 0.02,         // laborBoss earns 2% of ALL rent in their borough (labor surcharge)
+    casinoManagerMinimumCut: 25,    // CM earns at least $25 per casino landing even if rent is 0
+    judgeCourtFee: 15,              // judge earns $15 every time someone goes to jail (court costs)
+    lawyerRetainerPerGo: 10,        // lawyer earns $10 per protected client each GO (retainer)
+    bankerInterestFloor: 0.05,      // banker earns at least 5% on all outstanding loans automatically
   },
+
+  // ---- Jail (nerfed cop bail) ----------------------------------------------
 
   // ---- Action card effects --------------------------------------------------
   actions: {
@@ -212,11 +218,11 @@ export const CONFIG = {
     },
   },
 
-  // ---- Jail ----------------------------------------------------------------
   jail: {
     maxTurns: 3,                   // auto-release after this many skipped turns
     doublesEscape: true,           // rolling doubles while jailed = early release
-    bailCost: 200,                 // pay this to get out immediately (optional)
+    bailCost: 100,                 // pay this to get out (halved from 200 — nerf cop income)
+    copBailShare: 0.50,            // cop only gets 50% of bail (rest to court/bank sink)
   },
 
   // ---- Casino dice ---------------------------------------------------------
@@ -251,7 +257,7 @@ export const CONFIG = {
     mobCreatesMoneyFromNothing: true, // Boss can loan money they don't have
     mobForeclosureToMob: true,       // mob foreclosure = property becomes Boss's
     mobDebtLockout: true,            // while in mob debt, mob is your only lender
-    mobDebtPayoffMultiplier: 2.0,    // pay back 2x borrowed to escape mob ownership
+    mobDebtPayoffMultiplier: 1.5,    // pay back 1.5x borrowed to escape mob ownership
   },
 
   // ---- Partnerships -------------------------------------------------------

@@ -125,19 +125,56 @@ const STRATEGIES = {
 // ---- Role economy helpers --------------------------------------------------
 
 function processRoleIncome(state, events) {
-  // Cop protection: at start of each round, protected players pay their cop
+  const eco = CONFIG.economy;
   for (const p of Object.values(state.players)) {
+    // Cop protection fees
     if (p.status.protectedByCopId) {
       const cop = state.players[p.status.protectedByCopId];
       if (cop) {
-        // 5% of player's total property rent income (simplified as fixed fee)
         const fee = Math.round(p.propertyIds.reduce((s, i) => s + effectiveRent(state.board[i]), 0) * 0.05);
         if (fee > 0 && p.cash >= fee) {
-          p.cash -= fee;
-          cop.cash += fee;
+          p.cash -= fee; cop.cash += fee;
           cop.stats.protectionEarned += fee;
           p.stats.copProtectionsPaid += fee;
         }
+      }
+    }
+
+    // Inspector permit fee: 3% of all build value in their borough
+    for (const role of p.roles) {
+      if (role.role === 'Inspector') {
+        const boroughBuilt = Object.values(state.players).flatMap(pl => pl.propertyIds)
+          .map(i => state.board[i])
+          .filter(sp => sp.borough === role.borough && sp.buildingType);
+        const totalBuildValue = boroughBuilt.reduce((s, sp) => s + sp.basePrice * (sp.rentMultiplier || 1), 0);
+        const fee = Math.round(totalBuildValue * (eco.inspectorPermitFee || 0));
+        if (fee > 0) { p.cash += fee; p.stats.skimEarned += fee; }
+      }
+
+      // LaborBoss wage fee: 2% of all rent in their borough
+      if (role.role === 'LaborBoss') {
+        const boroughRent = Object.values(state.players).flatMap(pl => pl.propertyIds)
+          .map(i => state.board[i])
+          .filter(sp => sp.borough === role.borough && sp.ownerId && sp.ownerId !== p.id)
+          .reduce((s, sp) => s + effectiveRent(sp), 0);
+        const fee = Math.round(boroughRent * (eco.laborBossWageFee || 0));
+        if (fee > 0) { p.cash += fee; p.stats.skimEarned += fee; }
+      }
+
+      // Lawyer retainer: $10 per GO from each protected client
+      if (role.role === 'Lawyer') {
+        const retainer = eco.lawyerRetainerPerGo || 0;
+        if (retainer > 0) { p.cash += retainer; p.stats.skimEarned += retainer; }
+      }
+
+      // Banker interest floor: 5% auto-earn on outstanding loans
+      if (role.role === 'Banker') {
+        const outstandingLoans = Object.values(state.players)
+          .flatMap(pl => pl.debts)
+          .filter(d => d.lenderId === p.id);
+        const totalOutstanding = outstandingLoans.reduce((s, d) => s + d.principalRemaining, 0);
+        const interest = Math.round(totalOutstanding * (eco.bankerInterestFloor || 0));
+        if (interest > 0) { p.cash += interest; p.stats.skimEarned += interest; }
       }
     }
   }
@@ -158,11 +195,20 @@ function processBailIfJailed(state, player, events) {
   if (bail.collectorId && player.cash >= bail.amount) {
     player.cash -= bail.amount;
     const cop = state.players[bail.collectorId];
+    // cop only gets their share (50%), rest sinks
+    const copShare = Math.round(bail.amount * (CONFIG.jail.copBailShare || 0.5));
     if (cop) {
-      cop.cash += bail.amount;
-      cop.stats.bailEarned += bail.amount;
+      cop.cash += copShare;
+      cop.stats.bailEarned += copShare;
     }
-    events.push(`BAIL $${bail.amount}${bail.doubledFor ? ' (2x ' + bail.doubledFor + ')' : ''} → ${cop?.name || 'Cop'}`);
+    // judge earns court fee
+    const judge = findRoleHolder(state, 'Judge', borough);
+    const courtFee = CONFIG.economy.judgeCourtFee || 0;
+    if (judge && judge.id !== player.id) {
+      judge.cash += courtFee;
+      judge.stats.skimEarned += courtFee;
+    }
+    events.push(`BAIL $${bail.amount}${bail.doubledFor ? ' (2x ' + bail.doubledFor + ')' : ''} → Cop $${copShare}${judge ? ' + Judge $' + courtFee : ''}`);
   }
 }
 
@@ -405,35 +451,52 @@ function simTurn(state, player) {
     player.cash += CONFIG.money.paydayBase;
     player.stats.laps++;
 
-    // progressive property tax on GO — built properties get 80% discount
-    const discount = CONFIG.money.builtPropertyTaxDiscount || 0;
-    const unbuilt = player.propertyIds.filter(i => !state.board[i].buildingType).length;
-    const built = player.propertyIds.filter(i => state.board[i].buildingType).length;
-    // sort: unbuilt first (they pay full rate), built last (discounted)
+    // value-based property tax on GO
     const totalLots = player.propertyIds.length;
     let propTax = 0;
-    const brackets = CONFIG.money.propertyTaxBrackets || [];
-    let lotsCounted = 0;
-    for (const bracket of brackets) {
-      const lotsInBracket = Math.min(totalLots, bracket.upTo) - lotsCounted;
-      if (lotsInBracket > 0) {
-        propTax += lotsInBracket * bracket.perLot;
-        lotsCounted += lotsInBracket;
-      }
+
+    for (const idx of player.propertyIds) {
+      const sp = state.board[idx];
+      const value = sp.basePrice * (sp.rentMultiplier || 1);
+      const baseRate = CONFIG.money.propertyTaxRate || 0.02;
+      const emptyExtra = sp.buildingType ? 0 : (CONFIG.money.emptyLotSurcharge || 0.03);
+      propTax += Math.round(value * (baseRate + emptyExtra));
     }
-    // apply discount: reduce tax proportionally for built lots
-    if (built > 0 && totalLots > 0) {
-      const builtFraction = built / totalLots;
-      const discountAmount = Math.round(propTax * builtFraction * discount);
-      propTax -= discountAmount;
+
+    // surtax for empires: extra 1% per lot over cap on ALL properties
+    const cap = CONFIG.money.maxPropertiesBeforeSurtax || 8;
+    if (totalLots > cap) {
+      const extraLots = totalLots - cap;
+      const surtaxRate = extraLots * (CONFIG.money.surtaxPerExtraLot || 0.01);
+      const totalValue = player.propertyIds.reduce((s, i) => s + state.board[i].basePrice * (state.board[i].rentMultiplier || 1), 0);
+      propTax += Math.round(totalValue * surtaxRate);
     }
+
+    const unbuilt = player.propertyIds.filter(i => !state.board[i].buildingType).length;
+    const built = player.propertyIds.filter(i => state.board[i].buildingType).length;
+
     if (propTax > 0) {
       const paid = Math.min(propTax, player.cash);
       player.cash -= paid;
-      state.taxPool += paid;
+
+      // distribute to politicians or free parking
+      const playerBoroughs = [...new Set(player.propertyIds.map(i => state.board[i].borough))];
+      let taxDistributed = 0;
+      for (const b of playerBoroughs) {
+        const pol = findRoleHolder(state, 'Politician', b);
+        if (pol && pol.id !== player.id) {
+          const share = Math.round(paid / playerBoroughs.length);
+          pol.cash += share;
+          pol.stats.taxCollected += share;
+          taxDistributed += share;
+        }
+      }
+      const toFreeParking = paid - taxDistributed;
+      if (toFreeParking > 0) state.freeParkingPool += toFreeParking;
     }
+
     const netPayday = CONFIG.money.paydayBase - propTax;
-    events.push(`PAYDAY +$${CONFIG.money.paydayBase} -$${propTax} tax(${unbuilt}empty/${built}built) net $${netPayday}`);
+    events.push(`PAYDAY +$${CONFIG.money.paydayBase} -$${propTax} tax(${unbuilt}e/${built}b/${totalLots}tot) net $${netPayday}`);
 
     // loan payments on GO
     for (let i = player.debts.length - 1; i >= 0; i--) {
@@ -820,7 +883,26 @@ function runSimulation() {
     state._turnNumber = turn;
 
     // process role income once per round
-    if (turn % 8 === 0) processRoleIncome(state, []);
+    if (turn % 8 === 0) {
+      processRoleIncome(state, []);
+
+      // distribute accumulated tax pool to politicians, or free parking if none
+      if (state.taxPool > 0) {
+        const allPols = Object.values(state.players).filter(p => p.roles.some(r => r.role === 'Politician'));
+        if (allPols.length > 0) {
+          const perPol = Math.floor(state.taxPool / allPols.length);
+          for (const pol of allPols) {
+            pol.cash += perPol;
+            pol.stats.taxCollected += perPol;
+          }
+          state.taxPool -= perPol * allPols.length;
+        } else {
+          // no politicians — all tax goes to free parking
+          state.freeParkingPool += state.taxPool;
+          state.taxPool = 0;
+        }
+      }
+    }
 
     for (const player of players) {
       if (player.cash < -100) { bankrupt = player; break; }

@@ -20,8 +20,9 @@ const BOROUGH_LAYOUT = [
   'vacantLot', 'abandonedStore', 'abandonedStripMall',
   'vacantLot', 'anchorSlot',                   // casino/stadium anchor
   'abandonedApartment', 'vacantLot', 'abandonedCondoTower',
+  'freeParking',                                // mid-borough free parking
   'abandonedSkyrise',                          // premium lot — expensive but huge potential
-  'tax', 'jail',                               // tax square + jail
+  'freeParking', 'tax', 'jail',                // second free parking + tax square + jail
 ];
 
 /** base price for a space given its borough and its index within that borough */
