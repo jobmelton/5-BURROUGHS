@@ -23,6 +23,15 @@ export const CONFIG = {
     catchUpFloor: 1500,          // never less than the turn-1 amount
     catchUpFractionOfAvg: 0.6,   // catch-up = max(floor, 0.6 * avg human net worth)
     paydayBase: 200,             // base income for passing the payday space (GO)
+    propertyTaxBrackets: [       // progressive tax per UNDEVELOPED lot when passing GO
+      { upTo: 3, perLot: 10 },   // lots 1-3: $10 each
+      { upTo: 6, perLot: 30 },   // lots 4-6: $30 each
+      { upTo: 10, perLot: 75 },  // lots 7-10: $75 each
+      { upTo: 15, perLot: 150 }, // lots 11-15: $150 each — serious pain
+      { upTo: 99, perLot: 300 }, // lots 16+: $300 each — empire tax
+    ],
+    builtPropertyTaxDiscount: 0.80, // built properties pay only 20% of the tax (80% discount)
+    maxActiveRoles: 3,           // max active roles per player; extras go dormant
   },
 
   // ---- Board pricing curve -------------------------------------------------
@@ -60,11 +69,11 @@ export const CONFIG = {
         contiguous: 1,
         label: 'Tier 1 — Single Lot',
         steps: [
-          { type: 'house',         label: 'House',           costMult: 0.30, rentMult: 1.5,  roi: 0.08 },
-          { type: 'duplex',        label: 'Duplex',          costMult: 0.40, rentMult: 1.8,  roi: 0.10 },
-          { type: 'cornerStore',   label: 'Corner Store',    costMult: 0.50, rentMult: 2.0,  roi: 0.12 },
-          { type: 'restaurant',    label: 'Restaurant',      costMult: 0.60, rentMult: 2.3,  roi: 0.14 },
-          { type: 'boutiqueHotel', label: 'Boutique Hotel',  costMult: 0.70, rentMult: 2.5,  roi: 0.15 },
+          { type: 'house',         label: 'House',           costMult: 0.30, rentMult: 2.0,  roi: 0.12 },
+          { type: 'duplex',        label: 'Duplex',          costMult: 0.45, rentMult: 2.8,  roi: 0.16 },
+          { type: 'cornerStore',   label: 'Corner Store',    costMult: 0.60, rentMult: 3.5,  roi: 0.20 },
+          { type: 'restaurant',    label: 'Restaurant',      costMult: 0.80, rentMult: 4.5,  roi: 0.25 },
+          { type: 'boutiqueHotel', label: 'Boutique Hotel',  costMult: 1.00, rentMult: 5.5,  roi: 0.30 },
         ],
         haloRadius: 1,
       },
@@ -72,11 +81,11 @@ export const CONFIG = {
         contiguous: 2,
         label: 'Tier 2 — Two Lots',
         steps: [
-          { type: 'multifamily',   label: 'Multifamily',     costMult: 0.90, rentMult: 3.0,  roi: 0.22 },
-          { type: 'stripMall',     label: 'Strip Mall',      costMult: 1.00, rentMult: 3.3,  roi: 0.25 },
-          { type: 'medicalPlaza',  label: 'Medical Plaza',   costMult: 1.15, rentMult: 3.6,  roi: 0.28 },
-          { type: 'condos',        label: 'Condos',          costMult: 1.30, rentMult: 4.0,  roi: 0.32 },
-          { type: 'luxuryCondos',  label: 'Luxury Condos',   costMult: 1.50, rentMult: 4.5,  roi: 0.35 },
+          { type: 'multifamily',   label: 'Multifamily',     costMult: 1.20, rentMult: 7.0,  roi: 0.35 },
+          { type: 'stripMall',     label: 'Strip Mall',      costMult: 1.50, rentMult: 8.5,  roi: 0.40 },
+          { type: 'medicalPlaza',  label: 'Medical Plaza',   costMult: 1.80, rentMult: 10.0, roi: 0.45 },
+          { type: 'condos',        label: 'Condos',          costMult: 2.20, rentMult: 12.0, roi: 0.50 },
+          { type: 'luxuryCondos',  label: 'Luxury Condos',   costMult: 2.60, rentMult: 14.0, roi: 0.55 },
         ],
         haloRadius: 2,
       },
@@ -84,11 +93,11 @@ export const CONFIG = {
         contiguous: 3,
         label: 'Tier 3 — Three Lots',
         steps: [
-          { type: 'aptComplex',    label: 'Apartment Complex',  costMult: 1.80, rentMult: 5.0,  roi: 0.38 },
-          { type: 'autoDealer',    label: 'Auto Dealership',    costMult: 2.00, rentMult: 5.5,  roi: 0.42 },
-          { type: 'miniMall',      label: 'Mini Mall',          costMult: 2.20, rentMult: 6.0,  roi: 0.46 },
-          { type: 'officePark',    label: 'Office Park',        costMult: 2.50, rentMult: 6.5,  roi: 0.50 },
-          { type: 'boutiqueResort',label: 'Boutique Resort',    costMult: 2.80, rentMult: 7.0,  roi: 0.55 },
+          { type: 'aptComplex',    label: 'Apartment Complex',  costMult: 3.00, rentMult: 16.0, roi: 0.58 },
+          { type: 'autoDealer',    label: 'Auto Dealership',    costMult: 3.50, rentMult: 18.0, roi: 0.62 },
+          { type: 'miniMall',      label: 'Mini Mall',          costMult: 4.00, rentMult: 20.0, roi: 0.66 },
+          { type: 'officePark',    label: 'Office Park',        costMult: 4.50, rentMult: 23.0, roi: 0.70 },
+          { type: 'boutiqueResort',label: 'Boutique Resort',    costMult: 5.00, rentMult: 26.0, roi: 0.75 },
         ],
         haloRadius: 3,
       },
@@ -96,11 +105,11 @@ export const CONFIG = {
         contiguous: 4,
         label: 'Tier 4 — Four Lots',
         steps: [
-          { type: 'mixedUseRetail', label: 'Mixed-Use Retail',   costMult: 3.20, rentMult: 8.0,   roi: 0.58 },
-          { type: 'parkingStructure',label: 'Parking Structure',  costMult: 3.60, rentMult: 9.0,   roi: 0.63 },
-          { type: 'corpTower',      label: 'Corporate Tower',    costMult: 4.00, rentMult: 10.0,  roi: 0.68 },
-          { type: 'resTower',       label: 'Residential Tower',  costMult: 4.50, rentMult: 11.0,  roi: 0.72 },
-          { type: 'skyriseHotel',   label: 'Skyrise Hotel',      costMult: 5.00, rentMult: 12.0,  roi: 0.75 },
+          { type: 'mixedUseRetail', label: 'Mixed-Use Retail',   costMult: 5.50, rentMult: 30.0,  roi: 0.78 },
+          { type: 'parkingStructure',label: 'Parking Structure',  costMult: 6.50, rentMult: 35.0,  roi: 0.82 },
+          { type: 'corpTower',      label: 'Corporate Tower',    costMult: 7.50, rentMult: 40.0,  roi: 0.85 },
+          { type: 'resTower',       label: 'Residential Tower',  costMult: 8.50, rentMult: 45.0,  roi: 0.88 },
+          { type: 'skyriseHotel',   label: 'Skyrise Hotel',      costMult: 10.00, rentMult: 50.0, roi: 0.92 },
         ],
         haloRadius: 4,
       },
@@ -108,10 +117,10 @@ export const CONFIG = {
         contiguous: 5,
         label: 'Tier 5 — Five Lots',
         steps: [
-          { type: 'entertainmentComplex', label: 'Entertainment Complex', costMult: 5.50, rentMult: 13.0, roi: 0.78 },
-          { type: 'conventionCenter',     label: 'Convention Center',     costMult: 6.50, rentMult: 15.0, roi: 0.82 },
-          { type: 'casino',               label: 'Casino',               costMult: 7.50, rentMult: 17.0, roi: 0.85 },
-          { type: 'megaCasino',            label: 'Mega Casino',          costMult: 8.50, rentMult: 18.0, roi: 0.88 },
+          { type: 'entertainmentComplex', label: 'Entertainment Complex', costMult: 12.00, rentMult: 60.0, roi: 0.93 },
+          { type: 'conventionCenter',     label: 'Convention Center',     costMult: 14.00, rentMult: 70.0, roi: 0.95 },
+          { type: 'casino',               label: 'Casino',               costMult: 16.00, rentMult: 80.0, roi: 0.97 },
+          { type: 'megaCasino',            label: 'Mega Casino',          costMult: 20.00, rentMult: 100.0, roi: 0.99 },
         ],
         haloRadius: 5,
       },
@@ -119,9 +128,9 @@ export const CONFIG = {
         contiguous: 6,
         label: 'Tier 6 — Six+ Lots',
         steps: [
-          { type: 'sportsArena',          label: 'Sports Arena',          costMult: 9.00,  rentMult: 20.0, roi: 0.92 },
-          { type: 'stadium',              label: 'Stadium',              costMult: 10.50, rentMult: 25.0, roi: 0.96 },
-          { type: 'championshipStadium',  label: 'Championship Stadium', costMult: 12.00, rentMult: 30.0, roi: 1.00 },
+          { type: 'sportsArena',          label: 'Sports Arena',          costMult: 25.00, rentMult: 120.0, roi: 0.96 },
+          { type: 'stadium',              label: 'Stadium',              costMult: 30.00, rentMult: 150.0, roi: 0.98 },
+          { type: 'championshipStadium',  label: 'Championship Stadium', costMult: 40.00, rentMult: 200.0, roi: 1.00 },
         ],
         haloRadius: 6,
       },
@@ -177,7 +186,7 @@ export const CONFIG = {
       maxRolesStolen: 1,           // how many roles the attacker takes per Hit
     },
     rico: {
-      minRolesToTarget: 3,         // boss must hold this many roles to be RICO-eligible
+      minRolesToTarget: 2,         // boss must hold this many roles to be RICO-eligible
       jailTurns: 3,                // how many turns the convicted boss sits in jail
     },
     informant: {
@@ -242,6 +251,7 @@ export const CONFIG = {
     mobCreatesMoneyFromNothing: true, // Boss can loan money they don't have
     mobForeclosureToMob: true,       // mob foreclosure = property becomes Boss's
     mobDebtLockout: true,            // while in mob debt, mob is your only lender
+    mobDebtPayoffMultiplier: 2.0,    // pay back 2x borrowed to escape mob ownership
   },
 
   // ---- Partnerships -------------------------------------------------------
