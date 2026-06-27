@@ -52,7 +52,7 @@ export function getAvailableTier(state, playerId, index) {
 export function getCurrentTierIndex(space) {
   if (!space.buildingType) return -1;
   for (let i = 0; i < build.tiers.length; i++) {
-    if (build.tiers[i].options.some(o => o.type === space.buildingType)) return i;
+    if (build.tiers[i].steps.some(o => o.type === space.buildingType)) return i;
   }
   return -1;
 }
@@ -64,7 +64,7 @@ export function getCurrentTierIndex(space) {
 export function getPreviousInvestment(space) {
   if (!space.buildingType) return 0;
   for (const tier of build.tiers) {
-    const opt = tier.options.find(o => o.type === space.buildingType);
+    const opt = tier.steps.find(o => o.type === space.buildingType);
     if (opt) return Math.round(space.basePrice * opt.costMult);
   }
   return 0;
@@ -129,65 +129,88 @@ export function getBuildOptions(state, playerId, index) {
   // determine the next tier to build
   const nextTierIdx = currentTierIdx + 1;
 
-  // if nothing built, offer tier 1
+  // find current step within current tier
+  let currentStepIdx = -1;
+  let currentTier = currentTierIdx >= 0 ? build.tiers[currentTierIdx] : null;
+  if (currentTier && space.buildingType) {
+    currentStepIdx = currentTier.steps.findIndex(s => s.type === space.buildingType);
+  }
+
+  // CASE 1: nothing built — offer step 1 of tier 1 only
   if (currentTierIdx < 0) {
     const tier = build.tiers[0];
     if (!tier) return [];
-    for (const opt of tier.options) {
-      const fullCost = Math.round(space.basePrice * opt.costMult);
-      const demo = space.type.startsWith('abandoned')
-        ? Math.round(space.basePrice * build.demoCost) : 0;
-      options.push({
-        type: opt.type, label: opt.label, costMult: opt.costMult,
-        fullCost, cost: fullCost + demo, demo, previousInvestment: 0,
-        rentMult: opt.rentMult, roi: opt.roi,
-        tierContiguous: tier.contiguous, tierLabel: tier.label, tierIndex: 0,
-        haloRadius: tier.haloRadius,
-        affordable: player.cash >= (fullCost + demo),
-        rentResult: Math.round(space.baseRent * opt.rentMult),
-        isUpgrade: false,
-      });
-    }
-    return options;
-  }
-
-  // already built — check if we can upgrade to next tier
-  if (nextTierIdx >= build.tiers.length) return []; // max tier reached
-
-  const nextTier = build.tiers[nextTierIdx];
-  if (contiguous < nextTier.contiguous) return []; // not enough contiguous lots
-
-  // KEY RULE: ALL contiguous lots must be at current tier before upgrading ANY
-  const check = allLotsAtTier(state, playerId, index, currentTierIdx);
-  if (!check.allReady) {
-    // can't upgrade yet — neighbor lot #X still needs to be built
+    const step = tier.steps[0];
+    const fullCost = Math.round(space.basePrice * step.costMult);
+    const demo = space.type.startsWith('abandoned')
+      ? Math.round(space.basePrice * build.demoCost) : 0;
     return [{
-      type: '_blocked',
-      label: `Blocked — Lot #${check.notReady} needs Tier ${currentTierIdx + 1} first`,
-      cost: 0, affordable: false, rentMult: 0, roi: 0,
-      tierContiguous: nextTier.contiguous, tierLabel: nextTier.label, tierIndex: nextTierIdx,
-      reason: `All ${contiguous} contiguous lots must be at Tier ${currentTierIdx + 1} before upgrading. Lot #${check.notReady} is at Tier ${check.currentTier + 1}.`,
+      type: step.type, label: step.label, costMult: step.costMult,
+      fullCost, cost: fullCost + demo, demo, previousInvestment: 0,
+      rentMult: step.rentMult, roi: step.roi,
+      stepNumber: 1, totalSteps: tier.steps.length,
+      tierContiguous: tier.contiguous, tierLabel: tier.label, tierIndex: 0,
+      haloRadius: tier.haloRadius,
+      affordable: player.cash >= (fullCost + demo),
+      rentResult: Math.round(space.baseRent * step.rentMult),
+      isUpgrade: false,
     }];
   }
 
-  // all lots ready — offer next tier options
-  for (const opt of nextTier.options) {
-    const fullCost = Math.round(space.basePrice * opt.costMult);
+  // CASE 2: mid-tier — offer only the NEXT sequential step
+  if (currentStepIdx >= 0 && currentStepIdx < currentTier.steps.length - 1) {
+    const nextStep = currentTier.steps[currentStepIdx + 1];
+    const fullCost = Math.round(space.basePrice * nextStep.costMult);
     const upgradeCost = Math.max(0, fullCost - previousInvestment);
-
-    options.push({
-      type: opt.type, label: opt.label, costMult: opt.costMult,
+    return [{
+      type: nextStep.type, label: nextStep.label, costMult: nextStep.costMult,
       fullCost, cost: upgradeCost, demo: 0, previousInvestment,
-      rentMult: opt.rentMult, roi: opt.roi,
-      tierContiguous: nextTier.contiguous, tierLabel: nextTier.label, tierIndex: nextTierIdx,
-      haloRadius: nextTier.haloRadius,
+      rentMult: nextStep.rentMult, roi: nextStep.roi,
+      stepNumber: currentStepIdx + 2, totalSteps: currentTier.steps.length,
+      tierContiguous: currentTier.contiguous, tierLabel: currentTier.label, tierIndex: currentTierIdx,
+      haloRadius: currentTier.haloRadius,
       affordable: player.cash >= upgradeCost,
-      rentResult: Math.round(space.baseRent * opt.rentMult),
+      rentResult: Math.round(space.baseRent * nextStep.rentMult),
       isUpgrade: true,
-    });
+    }];
   }
 
-  return options;
+  // CASE 3: at last step of tier — check if next tier is available
+  if (nextTierIdx >= build.tiers.length) return []; // max tier reached
+  const nextTier = build.tiers[nextTierIdx];
+  if (contiguous < nextTier.contiguous) return []; // not enough lots
+
+  // ALL lots must be at LAST STEP of current tier before any can start next tier
+  const lots = getContiguousLots(state, playerId, index);
+  const lastStepType = currentTier.steps[currentTier.steps.length - 1].type;
+  for (const lotIdx of lots) {
+    const sp = state.board[lotIdx];
+    if (sp.buildingType !== lastStepType) {
+      const spTierIdx = getCurrentTierIndex(sp);
+      const spStepIdx = spTierIdx >= 0 ? build.tiers[spTierIdx].steps.findIndex(s => s.type === sp.buildingType) : -1;
+      const spStepLabel = sp.buildingType || 'unbuilt';
+      return [{
+        type: '_blocked', label: 'Blocked', cost: 0, affordable: false, rentMult: 0, roi: 0,
+        reason: `Lot #${lotIdx} is at ${spStepLabel}. All lots must reach ${currentTier.steps[currentTier.steps.length - 1].label} before starting ${nextTier.label}.`,
+      }];
+    }
+  }
+
+  // all lots maxed — offer step 1 of next tier
+  const firstStep = nextTier.steps[0];
+  const fullCost = Math.round(space.basePrice * firstStep.costMult);
+  const upgradeCost = Math.max(0, fullCost - previousInvestment);
+  return [{
+    type: firstStep.type, label: firstStep.label, costMult: firstStep.costMult,
+    fullCost, cost: upgradeCost, demo: 0, previousInvestment,
+    rentMult: firstStep.rentMult, roi: firstStep.roi,
+    stepNumber: 1, totalSteps: nextTier.steps.length,
+    tierContiguous: nextTier.contiguous, tierLabel: nextTier.label, tierIndex: nextTierIdx,
+    haloRadius: nextTier.haloRadius,
+    affordable: player.cash >= upgradeCost,
+    rentResult: Math.round(space.baseRent * firstStep.rentMult),
+    isUpgrade: true,
+  }];
 }
 
 /** Can this player build on this space? */
@@ -218,7 +241,7 @@ export function buildCost(space, buildingType) {
   }
   // find the option across all tiers
   for (const tier of build.tiers) {
-    const opt = tier.options.find(o => o.type === buildingType);
+    const opt = tier.steps.find(o => o.type === buildingType);
     if (opt) {
       const base = Math.round(space.basePrice * opt.costMult);
       const demo = space.type.startsWith('abandoned') ? Math.round(space.basePrice * build.demoCost) : 0;

@@ -52,61 +52,76 @@ export const CONFIG = {
   // Cost is a multiplier on the lot's base price. Rent mult replaces base rent.
   // Halo radius increases with tier — development lifts the whole neighborhood.
   build: {
+    // Each tier has SEQUENTIAL steps. You must build through every step in order.
+    // All contiguous lots must reach the LAST step of a tier before any can
+    // start the next tier. 27 total upgrade steps from empty to Championship Stadium.
     tiers: [
       {
         contiguous: 1,
         label: 'Tier 1 — Single Lot',
-        options: [
-          { type: 'house',        label: 'House',          costMult: 0.50, rentMult: 2.0,  roi: 0.10 },
-          { type: 'cornerStore',  label: 'Corner Store',   costMult: 0.60, rentMult: 2.2,  roi: 0.13 },
-          { type: 'restaurant',   label: 'Restaurant',     costMult: 0.70, rentMult: 2.5,  roi: 0.15 },
+        steps: [
+          { type: 'house',         label: 'House',           costMult: 0.30, rentMult: 1.5,  roi: 0.08 },
+          { type: 'duplex',        label: 'Duplex',          costMult: 0.40, rentMult: 1.8,  roi: 0.10 },
+          { type: 'cornerStore',   label: 'Corner Store',    costMult: 0.50, rentMult: 2.0,  roi: 0.12 },
+          { type: 'restaurant',    label: 'Restaurant',      costMult: 0.60, rentMult: 2.3,  roi: 0.14 },
+          { type: 'boutiqueHotel', label: 'Boutique Hotel',  costMult: 0.70, rentMult: 2.5,  roi: 0.15 },
         ],
         haloRadius: 1,
       },
       {
         contiguous: 2,
         label: 'Tier 2 — Two Lots',
-        options: [
-          { type: 'multifamily',  label: 'Multifamily',    costMult: 1.00, rentMult: 3.0,  roi: 0.25 },
-          { type: 'stripMall',    label: 'Strip Mall',     costMult: 1.20, rentMult: 3.5,  roi: 0.30 },
-          { type: 'condos',       label: 'Condos',         costMult: 1.50, rentMult: 4.0,  roi: 0.35 },
+        steps: [
+          { type: 'multifamily',   label: 'Multifamily',     costMult: 0.90, rentMult: 3.0,  roi: 0.22 },
+          { type: 'stripMall',     label: 'Strip Mall',      costMult: 1.00, rentMult: 3.3,  roi: 0.25 },
+          { type: 'medicalPlaza',  label: 'Medical Plaza',   costMult: 1.15, rentMult: 3.6,  roi: 0.28 },
+          { type: 'condos',        label: 'Condos',          costMult: 1.30, rentMult: 4.0,  roi: 0.32 },
+          { type: 'luxuryCondos',  label: 'Luxury Condos',   costMult: 1.50, rentMult: 4.5,  roi: 0.35 },
         ],
         haloRadius: 2,
       },
       {
         contiguous: 3,
         label: 'Tier 3 — Three Lots',
-        options: [
-          { type: 'aptComplex',   label: 'Apartment Complex', costMult: 2.00, rentMult: 5.0,  roi: 0.40 },
-          { type: 'autoDealer',   label: 'Auto Dealership',   costMult: 2.20, rentMult: 5.5,  roi: 0.48 },
-          { type: 'miniMall',     label: 'Mini Mall',         costMult: 2.50, rentMult: 6.0,  roi: 0.55 },
+        steps: [
+          { type: 'aptComplex',    label: 'Apartment Complex',  costMult: 1.80, rentMult: 5.0,  roi: 0.38 },
+          { type: 'autoDealer',    label: 'Auto Dealership',    costMult: 2.00, rentMult: 5.5,  roi: 0.42 },
+          { type: 'miniMall',      label: 'Mini Mall',          costMult: 2.20, rentMult: 6.0,  roi: 0.46 },
+          { type: 'officePark',    label: 'Office Park',        costMult: 2.50, rentMult: 6.5,  roi: 0.50 },
+          { type: 'boutiqueResort',label: 'Boutique Resort',    costMult: 2.80, rentMult: 7.0,  roi: 0.55 },
         ],
         haloRadius: 3,
       },
       {
         contiguous: 4,
         label: 'Tier 4 — Four Lots',
-        options: [
-          { type: 'skyriseRetail',  label: 'Skyrise Mixed-Use',  costMult: 3.00, rentMult: 8.0,   roi: 0.60 },
-          { type: 'retailTower',    label: 'Retail Tower',       costMult: 3.50, rentMult: 9.0,   roi: 0.68 },
-          { type: 'residentialTower', label: 'Residential Tower', costMult: 4.00, rentMult: 10.0,  roi: 0.75 },
+        steps: [
+          { type: 'mixedUseRetail', label: 'Mixed-Use Retail',   costMult: 3.20, rentMult: 8.0,   roi: 0.58 },
+          { type: 'parkingStructure',label: 'Parking Structure',  costMult: 3.60, rentMult: 9.0,   roi: 0.63 },
+          { type: 'corpTower',      label: 'Corporate Tower',    costMult: 4.00, rentMult: 10.0,  roi: 0.68 },
+          { type: 'resTower',       label: 'Residential Tower',  costMult: 4.50, rentMult: 11.0,  roi: 0.72 },
+          { type: 'skyriseHotel',   label: 'Skyrise Hotel',      costMult: 5.00, rentMult: 12.0,  roi: 0.75 },
         ],
         haloRadius: 4,
       },
       {
         contiguous: 5,
         label: 'Tier 5 — Five Lots',
-        options: [
-          { type: 'casino',       label: 'Casino',         costMult: 5.00, rentMult: 15.0, roi: 0.85 },
+        steps: [
+          { type: 'entertainmentComplex', label: 'Entertainment Complex', costMult: 5.50, rentMult: 13.0, roi: 0.78 },
+          { type: 'conventionCenter',     label: 'Convention Center',     costMult: 6.50, rentMult: 15.0, roi: 0.82 },
+          { type: 'casino',               label: 'Casino',               costMult: 7.50, rentMult: 17.0, roi: 0.85 },
+          { type: 'megaCasino',            label: 'Mega Casino',          costMult: 8.50, rentMult: 18.0, roi: 0.88 },
         ],
         haloRadius: 5,
       },
       {
         contiguous: 6,
         label: 'Tier 6 — Six+ Lots',
-        options: [
-          { type: 'stadium',      label: 'Stadium',        costMult: 7.00, rentMult: 20.0, roi: 0.95 },
-          { type: 'arena',        label: 'Arena',          costMult: 8.00, rentMult: 25.0, roi: 1.00 },
+        steps: [
+          { type: 'sportsArena',          label: 'Sports Arena',          costMult: 9.00,  rentMult: 20.0, roi: 0.92 },
+          { type: 'stadium',              label: 'Stadium',              costMult: 10.50, rentMult: 25.0, roi: 0.96 },
+          { type: 'championshipStadium',  label: 'Championship Stadium', costMult: 12.00, rentMult: 30.0, roi: 1.00 },
         ],
         haloRadius: 6,
       },
