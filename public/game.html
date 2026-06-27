@@ -13,9 +13,10 @@
       theme: {
         extend: {
           colors: {
-            dark: '#1a1a2e',
-            panel: '#16213e',
+            dark: '#0d0c0b',
+            panel: '#1a1512',
             gold: '#d4a843',
+            cream: '#f0ead6',
             'gold-dim': '#a8853a',
             'b1': '#e74c3c',
             'b2': '#2ecc71',
@@ -32,7 +33,7 @@
     };
   </script>
   <style>
-    body { font-family: 'Inter', sans-serif; background: #1a1a2e; color: #fff; }
+    body { font-family: 'Inter', sans-serif; background: #0d0c0b; color: #f0ead6; }
     h1, h2, h3, h4 { font-family: 'Playfair Display', serif; }
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: #16213e; }
@@ -390,6 +391,19 @@ const BOARD_VIEW = 1000;
 const BOARD_CX = 500, BOARD_CY = 530, BOARD_R = 430, SPACE_SZ = 30;
 const SPECIAL_BG = { jail:'#4a1a1a', freeParking:'#1a3a1a', tax:'#3a2a1a', career:'#1a1a3a', payday:'#2a2a1a' };
 const TOKEN_COLORS = ['#d4a843','#e74c3c','#2ecc71','#3498db','#9b59b6','#e67e22','#1abc9c','#e91e63'];
+// Maps each game buildingType -> the sliced art slug in /assets/buildings/.
+// Art is a smaller set than the 27 build types, so several types reuse the closest match.
+const BUILDING_ART = {
+  house:'house', duplex:'house', cornerStore:'retailShop', restaurant:'restaurant',
+  boutiqueHotel:'hotel', multifamily:'apartmentBuilding', stripMall:'retailShop',
+  medicalPlaza:'hospital', condos:'apartmentBuilding', luxuryCondos:'apartmentBuilding',
+  aptComplex:'apartmentBuilding', autoDealer:'gasStation', miniMall:'retailShop',
+  officePark:'officeTower', boutiqueResort:'hotel', mixedUseRetail:'retailShop',
+  parkingStructure:'warehouse', corpTower:'officeTower', resTower:'officeTower',
+  skyriseHotel:'hotel', entertainmentComplex:'theater', conventionCenter:'cityHall',
+  casino:'megaCasino', megaCasino:'megaCasinoTower', sportsArena:'arena',
+  stadium:'arena', championshipStadium:'championshipStadium',
+};
 
 // Pentagon corner i (0..4), pointing up. Corner 0 = top = start of borough 1 (GO).
 function boardCorner(i) {
@@ -419,15 +433,15 @@ function renderMap() {
 
   // Pentagon body (the future "pit") + center title
   const poly = [0,1,2,3,4].map(boardCorner).map(c => `${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' ');
-  parts.push(`<polygon points="${poly}" fill="#10162e" stroke="#2a3a5a" stroke-width="2"/>`);
-  parts.push(`<text x="${BOARD_CX}" y="${BOARD_CY-6}" text-anchor="middle" fill="#37476a" font-size="36" font-weight="bold" letter-spacing="3">5 BOROUGHS</text>`);
-  parts.push(`<text x="${BOARD_CX}" y="${BOARD_CY+22}" text-anchor="middle" fill="#2a3a5a" font-size="14" letter-spacing="4">THE PIT · coming soon</text>`);
+  parts.push(`<polygon points="${poly}" fill="#16110d" stroke="#3a2f22" stroke-width="2"/>`);
+  parts.push(`<text x="${BOARD_CX}" y="${BOARD_CY-6}" text-anchor="middle" fill="#5a4a32" font-size="36" font-weight="bold" letter-spacing="3">5 BOROUGHS</text>`);
+  parts.push(`<text x="${BOARD_CX}" y="${BOARD_CY+22}" text-anchor="middle" fill="#3a2f22" font-size="14" letter-spacing="4">THE PIT · coming soon</text>`);
 
   // Spaces
   for (const sp of state.board) {
     const p = pos[sp.index];
     const hex = BOROUGH_HEX['b' + sp.borough];
-    let bg = sp.basePrice > 0 ? hex + '33' : '#1a1a2e';
+    let bg = sp.basePrice > 0 ? hex + '33' : '#17120e';
     if (SPECIAL_BG[sp.type]) bg = SPECIAL_BG[sp.type];
     let stroke = hex + '66', sw = 1.5;
     if (sp.isMine) { stroke = '#d4a843'; sw = 3; }
@@ -436,12 +450,21 @@ function renderMap() {
     const x = (p.x - half).toFixed(1), y = (p.y - half).toFixed(1);
     const label = SPACE_LABELS[sp.type] || sp.type.substring(0, 2).toUpperCase();
 
+    const builtArt = (sp.buildLevel > 0 && sp.buildingType) ? BUILDING_ART[sp.buildingType] : null;
     let g = `<g class="svg-space${isMe ? ' svg-me' : ''}" onclick="inspectLot(${sp.index})">`;
     g += `<rect x="${x}" y="${y}" width="${SZ}" height="${SZ}" rx="4" fill="${bg}" stroke="${stroke}" stroke-width="${sw}"/>`;
-    g += `<text x="${p.x.toFixed(1)}" y="${(p.y-1).toFixed(1)}" text-anchor="middle" fill="#fff" font-size="11" font-weight="bold">${sp.index}</text>`;
-    g += `<text x="${p.x.toFixed(1)}" y="${(p.y+9).toFixed(1)}" text-anchor="middle" fill="#9aabbf" font-size="7">${label}</text>`;
-    if (sp.buildLevel > 0 && sp.buildingType) {
-      g += `<text x="${(p.x+half-2).toFixed(1)}" y="${(p.y-half+8).toFixed(1)}" text-anchor="end" fill="#d4a843" font-size="7" font-weight="bold">${buildingIcon(sp.buildingType)}</text>`;
+    if (builtArt) {
+      // Render the building sprite, larger than the tile, base sitting near tile center.
+      const aSz = SZ * 1.75;
+      const ax = (p.x - aSz / 2).toFixed(1), ay = (p.y - aSz * 0.72).toFixed(1);
+      g += `<image href="/assets/buildings/${builtArt}.png" x="${ax}" y="${ay}" width="${aSz.toFixed(1)}" height="${aSz.toFixed(1)}" preserveAspectRatio="xMidYMax meet"/>`;
+    } else {
+      g += `<text x="${p.x.toFixed(1)}" y="${(p.y-1).toFixed(1)}" text-anchor="middle" fill="#fff" font-size="11" font-weight="bold">${sp.index}</text>`;
+      g += `<text x="${p.x.toFixed(1)}" y="${(p.y+9).toFixed(1)}" text-anchor="middle" fill="#9aabbf" font-size="7">${label}</text>`;
+      if (sp.buildLevel > 0 && sp.buildingType) {
+        // Built but no art mapping — fall back to the letter badge so nothing is invisible.
+        g += `<text x="${(p.x+half-2).toFixed(1)}" y="${(p.y-half+8).toFixed(1)}" text-anchor="end" fill="#d4a843" font-size="7" font-weight="bold">${buildingIcon(sp.buildingType)}</text>`;
+      }
     }
     parts.push(g + `</g>`);
   }
