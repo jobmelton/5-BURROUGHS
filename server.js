@@ -13,6 +13,7 @@ import { dirname, join } from 'node:path';
 
 import { CONFIG } from './gameConfig.js';
 import { buildBoard } from './board.js';
+import { buildPit, moveAndResolve, ensurePit, ensureTrack } from './movement.js';
 import { buildCareerPool, buildActionPool, drawFrom } from './decks.js';
 import { getBuildOptions, buildOnSpace, effectiveRent, contiguousOwnedRun } from './economy.js';
 import { rollDice } from './turns.js';
@@ -149,6 +150,7 @@ app.post('/api/games', requireAuth, (req, res) => {
   const state = {
     gameId,
     board: buildBoard(),
+    pit: buildPit(),
     players: {},
     careerPool: buildCareerPool(),
     actionPool: buildActionPool(),
@@ -220,6 +222,9 @@ app.get('/api/games/:id/state', requireAuth, (req, res) => {
   const myPlayer = Object.values(state.players).find(p => p._email === req.userEmail);
   if (!myPlayer) return res.status(403).json({ error: 'Not in this game' });
 
+  ensurePit(state);                 // backfill pit ring for pre-pit saved games
+  Object.values(state.players).forEach(ensureTrack);
+
   const currentPlayerId = state._playerOrder[state._currentPlayerIdx];
   const isMyTurn = currentPlayerId === myPlayer.id;
 
@@ -234,7 +239,7 @@ app.get('/api/games/:id/state', requireAuth, (req, res) => {
     players: Object.values(state.players).map(p => ({
       id: p.id, name: p.name, isBot: p.isBot,
       cash: p.cash, netWorth: p.netWorth,
-      position: p.position,
+      position: p.position, track: p.track || 'outer',
       propertyCount: p.propertyIds.length,
       roleCount: p.roles.length,
       jailed: p.status.jailed,
@@ -255,6 +260,7 @@ app.get('/api/games/:id/state', requireAuth, (req, res) => {
     notifications: getPlayerNotifications(state, myPlayer.id),
     freeParkingPool: state.freeParkingPool,
     taxPool: state.taxPool,
+    pit: { ring: state.pit.ring.map(s => ({ index: s.index, kind: s.kind })) },
   });
 });
 
@@ -361,16 +367,16 @@ app.post('/api/games/:id/respond', requireAuth, (req, res) => {
 function newWebPlayer(id, name, email, isBot = false) {
   return {
     id, name, isBot, _email: email,
-    cash: CONFIG.money.startingCash, position: 0,
+    cash: CONFIG.money.startingCash, position: 0, track: 'outer',
     propertyIds: [], roles: [], dormantRoles: [], hand: [], debts: [],
-    status: { protectedByCopId: null, ownedByBossId: null, jailed: false, jailTurns: 0, hasMobDebt: false, roleDirty: false, rolledThisTurn: false },
+    status: { protectedByCopId: null, ownedByBossId: null, jailed: false, jailTurns: 0, hasMobDebt: false, roleDirty: false, rolledThisTurn: false, pendingPitEntry: false, pitEntryBorough: null },
     allianceIds: [], netWorth: CONFIG.money.startingCash,
   };
 }
 
 function sanitizePlayer(p) {
   return {
-    id: p.id, name: p.name, cash: p.cash, position: p.position,
+    id: p.id, name: p.name, cash: p.cash, position: p.position, track: p.track || 'outer',
     propertyIds: p.propertyIds,
     roles: p.roles.map(r => ({ id: r.id, role: r.role, borough: r.borough, clean: r.clean })),
     dormantRoles: (p.dormantRoles || []).map(r => ({ id: r.id, role: r.role, borough: r.borough })),
@@ -384,61 +390,26 @@ function sanitizePlayer(p) {
 }
 
 function executeRoll(state, player) {
-  const events = [];
-
-  if (player.status.jailed) {
-    const roll = rollDice();
-    if (roll.doubles) {
-      player.status.jailed = false;
-      player.status.jailTurns = 0;
-      events.push('Freed by doubles!');
-    } else {
-      player.status.jailTurns--;
-      if (player.status.jailTurns <= 0) {
-        player.status.jailed = false;
-        player.status.jailTurns = 0;
-        events.push('Time served — released');
-      } else {
-        events.push(`Still jailed (${player.status.jailTurns} turns left)`);
-        return { roll, events, position: player.position, space: null, options: [] };
-      }
-    }
-  }
-
   const roll = rollDice();
-  const boardLen = state.board.length;
-  const oldPos = player.position;
-  const newPos = (oldPos + roll.total) % boardLen;
-  const passedGo = (oldPos + roll.total) >= boardLen;
-
-  if (passedGo) {
-    player.cash += CONFIG.money.paydayBase;
-    events.push(`Payday! +$${CONFIG.money.paydayBase}`);
-    const loanResults = processLoanPaymentsOnGo(state, player.id);
-    events.push(...loanResults.descriptions);
-  }
-
-  player.position = newPos;
-  const space = state.board[newPos];
+  const res = moveAndResolve(state, player, roll);
+  const events = [...res.events];
   let options = [];
 
-  // resolve space
-  if (space.type === 'jail') {
-    if (hasRole(player, 'Boss') && bossIsJailImmune(state, player.id)) {
-      events.push('Jail — but immune (own a Cop)!');
-    } else {
-      player.status.jailed = true;
-      player.status.jailTurns = CONFIG.jail.maxTurns;
-      events.push(`Jailed for ${player.status.jailTurns} turns`);
-    }
-  } else if (space.type === 'freeParking' && state.freeParkingPool > 0) {
-    player.cash += state.freeParkingPool;
-    events.push(`Free Parking! Collected $${state.freeParkingPool}`);
-    state.freeParkingPool = 0;
-  } else if (space.type === 'tax') {
-    const result = processTaxSquare(state, player.id, space.borough);
-    events.push(result.description);
-  } else if (space.type === 'career') {
+  // jail / pit entry / pit ring fully handled by movement.js
+  if (res.done) {
+    tickNotifications(state);
+    updateNetWorth(state, player);
+    return {
+      roll, events, position: player.position, track: player.track,
+      space: res.space ? { index: res.space.index, type: res.space.type, borough: res.space.borough, basePrice: res.space.basePrice } : null,
+      options, cash: player.cash,
+    };
+  }
+
+  // landed on an OUTER space — resolve career / property / rent here
+  const space = res.space;
+
+  if (space.type === 'career') {
     const card = drawFrom(state.careerPool);
     if (card) {
       card.ownedById = player.id;
@@ -486,7 +457,7 @@ function executeRoll(state, player) {
   updateNetWorth(state, player);
 
   return {
-    roll, events, position: newPos,
+    roll, events, position: player.position, track: player.track,
     space: { index: space.index, type: space.type, borough: space.borough, basePrice: space.basePrice },
     options,
     cash: player.cash,
@@ -520,39 +491,35 @@ function advanceTurn(state) {
 }
 
 function autoBotTurn(state, bot) {
-  // simplified bot: roll, auto-buy cheap, auto-build
+  // simplified bot: roll (jail/pit handled by movement.js), auto-buy cheap, auto-build
   const roll = rollDice();
-  const boardLen = state.board.length;
-  const newPos = (bot.position + roll.total) % boardLen;
-  if (bot.position + roll.total >= boardLen) bot.cash += CONFIG.money.paydayBase;
-  bot.position = newPos;
-  const space = state.board[newPos];
+  const res = moveAndResolve(state, bot, roll);
 
-  if (space.type === 'jail' && !bossIsJailImmune(state, bot.id)) {
-    bot.status.jailed = true; bot.status.jailTurns = CONFIG.jail.maxTurns;
-  } else if (space.type === 'freeParking' && state.freeParkingPool > 0) {
-    bot.cash += state.freeParkingPool; state.freeParkingPool = 0;
-  } else if (space.basePrice > 0 && space.ownerId === null && space.basePrice <= bot.cash * 0.4) {
-    bot.cash -= space.basePrice; space.ownerId = bot.id; bot.propertyIds.push(space.index);
-  } else if (space.basePrice > 0 && space.ownerId && space.ownerId !== bot.id && space.buildLevel >= 0) {
-    const rent = effectiveRent(space);
-    const paid = Math.min(rent, bot.cash); bot.cash -= paid;
-    const owner = state.players[space.ownerId]; if (owner) owner.cash += paid;
-  } else if (space.type === 'career') {
-    const card = drawFrom(state.careerPool);
-    if (card) { card.ownedById = bot.id; bot.roles.push(card); }
-  }
-
-  // bot builds
-  for (const idx of bot.propertyIds) {
-    if (bot.cash < 100) break;
-    const opts = getBuildOptions(state, bot.id, idx);
-    if (opts.length > 0 && opts[0].type !== '_blocked' && opts[0].affordable) {
-      buildOnSpace(state, bot.id, idx, opts[0].type);
+  if (!res.done) {
+    const space = res.space;
+    if (space.basePrice > 0 && space.ownerId === null && space.basePrice <= bot.cash * 0.4) {
+      bot.cash -= space.basePrice; space.ownerId = bot.id; bot.propertyIds.push(space.index);
+    } else if (space.basePrice > 0 && space.ownerId && space.ownerId !== bot.id && space.buildLevel >= 0) {
+      const rent = effectiveRent(space);
+      const paid = Math.min(rent, bot.cash); bot.cash -= paid;
+      const owner = state.players[space.ownerId]; if (owner) owner.cash += paid;
+    } else if (space.type === 'career') {
+      const card = drawFrom(state.careerPool);
+      if (card) { card.ownedById = bot.id; bot.roles.push(card); }
     }
   }
 
-  if (bot.status.jailed) { bot.status.jailTurns--; if (bot.status.jailTurns <= 0) { bot.status.jailed = false; } }
+  // bot builds (only while out on the board)
+  if (bot.track === 'outer') {
+    for (const idx of bot.propertyIds) {
+      if (bot.cash < 100) break;
+      const opts = getBuildOptions(state, bot.id, idx);
+      if (opts.length > 0 && opts[0].type !== '_blocked' && opts[0].affordable) {
+        buildOnSpace(state, bot.id, idx, opts[0].type);
+      }
+    }
+  }
+
   updateNetWorth(state, bot);
 }
 
