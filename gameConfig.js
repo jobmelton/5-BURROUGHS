@@ -35,14 +35,14 @@ export const CONFIG = {
     buildCostFractionOfPrice: 0.5, // build cost = 50% of lot price per build level
     // space-type modifiers (multiply base price; rent modifier separate)
     typeMods: {
-      vacantLot:           { price: 1.00, rent: 1.00 },
-      abandonedBuilding:   { price: 1.40, rent: 0.50 }, // costs more, cheap rent
-      abandonedApartment:  { price: 1.80, rent: 1.10 },
-      abandonedCondo:      { price: 2.10, rent: 1.25 },
-      abandonedStore:      { price: 2.30, rent: 1.35 },
-      abandonedHotel:      { price: 2.80, rent: 1.60 },
-      abandonedCasino:     { price: 3.50, rent: 1.90 },
-      anchorSlot:          { price: 4.00, rent: 2.20 },
+      vacantLot:              { price: 1.00, rent: 1.00 },  // cheapest, blank canvas
+      abandonedHouse:         { price: 1.20, rent: 0.80 },  // tier 1 abandoned
+      abandonedStore:         { price: 1.50, rent: 1.00 },  // tier 1 abandoned
+      abandonedStripMall:     { price: 2.00, rent: 1.30 },  // tier 2 abandoned
+      abandonedApartment:     { price: 2.50, rent: 1.50 },  // tier 2 abandoned
+      abandonedCondoTower:    { price: 3.00, rent: 1.80 },  // tier 3 abandoned
+      abandonedSkyrise:       { price: 4.00, rent: 2.20 },  // tier 4 abandoned — premium location
+      anchorSlot:             { price: 5.00, rent: 2.50 },  // tier 5-6 — casino/stadium potential
     },
     demoCost: 0.30,            // demo-and-rebuild costs 30% of price before rebuild
   },

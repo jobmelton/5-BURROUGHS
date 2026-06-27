@@ -9,13 +9,19 @@ const { pricing } = CONFIG;
 
 // How the spaces in each borough are laid out, in order around the loop.
 // Tunable: the mix and count of space types per borough.
+// 16 spaces per borough = 80 total. Mix of vacant lots and abandoned buildings
+// of increasing value. Abandoned properties cost more (premium locations) but
+// require a demo fee before rebuilding. Higher-tier abandoneds are rarer and
+// clustered in later boroughs for natural price escalation.
 const BOROUGH_LAYOUT = [
-  'payday',                                   // borough start marker (paydays at b1 only acts as GO)
-  'vacantLot', 'vacantLot', 'abandonedBuilding',
-  'career',                                   // the per-borough Career Space
-  'vacantLot', 'abandonedStore', 'vacantLot',
-  'abandonedApartment', 'anchorSlot',         // the per-borough anchor slot
-  'vacantLot', 'abandonedCondo', 'tax', 'jail',
+  'payday',                                    // borough start marker (GO)
+  'vacantLot', 'vacantLot', 'abandonedHouse',  // cheap start
+  'career',                                    // career card draw
+  'vacantLot', 'abandonedStore', 'abandonedStripMall',
+  'vacantLot', 'anchorSlot',                   // casino/stadium anchor
+  'abandonedApartment', 'vacantLot', 'abandonedCondoTower',
+  'abandonedSkyrise',                          // premium lot — expensive but huge potential
+  'tax', 'jail',                               // tax square + jail
 ];
 
 /** base price for a space given its borough and its index within that borough */
@@ -60,9 +66,14 @@ export function buildBoard() {
   return board;
 }
 
-// price-bearing spaces: lots, abandoned buildings, anchor slots
+// price-bearing spaces: vacant lots, all abandoned types, anchor slots
 function isPlayablePrice(type) {
   return type === 'anchorSlot' || type === 'vacantLot' || type.startsWith('abandoned');
+}
+
+/** Check if a space type requires demo before building. */
+export function requiresDemo(type) {
+  return type.startsWith('abandoned');
 }
 
 /** Helper: list the space indices contiguous to a given index within the same borough. */

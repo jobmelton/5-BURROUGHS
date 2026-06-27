@@ -58,11 +58,11 @@ export function getCurrentTierIndex(space) {
 }
 
 /**
- * Get the total investment already sunk into this space (sum of all previous tier costs).
+ * Get the cumulative investment already sunk into this space
+ * (the cost multiplier of the building currently on it).
  */
 export function getPreviousInvestment(space) {
   if (!space.buildingType) return 0;
-  // find what was built and its cost multiplier
   for (const tier of build.tiers) {
     const opt = tier.options.find(o => o.type === space.buildingType);
     if (opt) return Math.round(space.basePrice * opt.costMult);
@@ -71,11 +71,45 @@ export function getPreviousInvestment(space) {
 }
 
 /**
- * Get build options for a space. Progressive building: must build through tiers.
- * - If nothing built: only Tier 1 options available
- * - If Tier 1 built: Tier 2 options available (if contiguity met), cost = difference
- * - And so on up the tiers
- * Returns [{ type, label, cost, upgradeCost, rentMult, roi, tier, affordable }].
+ * Get ALL contiguous lot indices owned by a player around a given index.
+ */
+export function getContiguousLots(state, playerId, index) {
+  const board = state.board;
+  const borough = board[index].borough;
+  const lots = [index];
+  // walk left
+  for (let i = index - 1; i >= 0 && board[i].borough === borough; i--) {
+    if (board[i].ownerId === playerId) lots.unshift(i); else break;
+  }
+  // walk right
+  for (let i = index + 1; i < board.length && board[i].borough === borough; i++) {
+    if (board[i].ownerId === playerId) lots.push(i); else break;
+  }
+  return lots;
+}
+
+/**
+ * Check if ALL contiguous lots are at a given tier or higher.
+ * Required before any lot in the run can upgrade to the next tier.
+ */
+export function allLotsAtTier(state, playerId, index, minTierIndex) {
+  const lots = getContiguousLots(state, playerId, index);
+  for (const lotIdx of lots) {
+    const sp = state.board[lotIdx];
+    const tierIdx = getCurrentTierIndex(sp);
+    if (tierIdx < minTierIndex) return { allReady: false, notReady: lotIdx, currentTier: tierIdx };
+  }
+  return { allReady: true };
+}
+
+/**
+ * Get build options for a space. Progressive building with tier gating:
+ * - If nothing built: only Tier 1 options (pick one)
+ * - To upgrade to Tier 2: ALL contiguous lots must have Tier 1 built
+ * - To upgrade to Tier 3: ALL contiguous lots must have Tier 2 built
+ * - And so on. Within a tier you choose ONE option.
+ * - Cost = full tier cost minus previous investment (incremental).
+ * - Demo surcharge applies to abandoned properties on first build only.
  */
 export function getBuildOptions(state, playerId, index) {
   const space = state.board[index];
@@ -92,44 +126,65 @@ export function getBuildOptions(state, playerId, index) {
   const previousInvestment = getPreviousInvestment(space);
   const options = [];
 
-  // determine the NEXT tier to build
+  // determine the next tier to build
   const nextTierIdx = currentTierIdx + 1;
 
-  // if nothing built yet, also allow choosing within tier 1
-  // if already built, only allow the next tier up
-  const startIdx = currentTierIdx < 0 ? 0 : nextTierIdx;
-  const endIdx = currentTierIdx < 0 ? 1 : nextTierIdx + 1; // only show one tier at a time
-
-  for (let t = startIdx; t < Math.min(endIdx, build.tiers.length); t++) {
-    const tier = build.tiers[t];
-    if (contiguous < tier.contiguous) continue; // not enough lots
-
+  // if nothing built, offer tier 1
+  if (currentTierIdx < 0) {
+    const tier = build.tiers[0];
+    if (!tier) return [];
     for (const opt of tier.options) {
       const fullCost = Math.round(space.basePrice * opt.costMult);
-      const demo = (space.type.startsWith('abandoned') && currentTierIdx < 0)
+      const demo = space.type.startsWith('abandoned')
         ? Math.round(space.basePrice * build.demoCost) : 0;
-      // upgrade cost = new tier cost minus what's already invested + demo
-      const upgradeCost = Math.max(0, fullCost - previousInvestment) + demo;
-
       options.push({
-        type: opt.type,
-        label: opt.label,
-        costMult: opt.costMult,
-        fullCost,
-        cost: upgradeCost,         // what the player actually pays (incremental)
-        demo,
-        previousInvestment,
-        rentMult: opt.rentMult,
-        roi: opt.roi,
-        tierContiguous: tier.contiguous,
-        tierLabel: tier.label,
-        tierIndex: t,
+        type: opt.type, label: opt.label, costMult: opt.costMult,
+        fullCost, cost: fullCost + demo, demo, previousInvestment: 0,
+        rentMult: opt.rentMult, roi: opt.roi,
+        tierContiguous: tier.contiguous, tierLabel: tier.label, tierIndex: 0,
         haloRadius: tier.haloRadius,
-        affordable: player.cash >= upgradeCost,
+        affordable: player.cash >= (fullCost + demo),
         rentResult: Math.round(space.baseRent * opt.rentMult),
-        isUpgrade: currentTierIdx >= 0,
+        isUpgrade: false,
       });
     }
+    return options;
+  }
+
+  // already built — check if we can upgrade to next tier
+  if (nextTierIdx >= build.tiers.length) return []; // max tier reached
+
+  const nextTier = build.tiers[nextTierIdx];
+  if (contiguous < nextTier.contiguous) return []; // not enough contiguous lots
+
+  // KEY RULE: ALL contiguous lots must be at current tier before upgrading ANY
+  const check = allLotsAtTier(state, playerId, index, currentTierIdx);
+  if (!check.allReady) {
+    // can't upgrade yet — neighbor lot #X still needs to be built
+    return [{
+      type: '_blocked',
+      label: `Blocked — Lot #${check.notReady} needs Tier ${currentTierIdx + 1} first`,
+      cost: 0, affordable: false, rentMult: 0, roi: 0,
+      tierContiguous: nextTier.contiguous, tierLabel: nextTier.label, tierIndex: nextTierIdx,
+      reason: `All ${contiguous} contiguous lots must be at Tier ${currentTierIdx + 1} before upgrading. Lot #${check.notReady} is at Tier ${check.currentTier + 1}.`,
+    }];
+  }
+
+  // all lots ready — offer next tier options
+  for (const opt of nextTier.options) {
+    const fullCost = Math.round(space.basePrice * opt.costMult);
+    const upgradeCost = Math.max(0, fullCost - previousInvestment);
+
+    options.push({
+      type: opt.type, label: opt.label, costMult: opt.costMult,
+      fullCost, cost: upgradeCost, demo: 0, previousInvestment,
+      rentMult: opt.rentMult, roi: opt.roi,
+      tierContiguous: nextTier.contiguous, tierLabel: nextTier.label, tierIndex: nextTierIdx,
+      haloRadius: nextTier.haloRadius,
+      affordable: player.cash >= upgradeCost,
+      rentResult: Math.round(space.baseRent * opt.rentMult),
+      isUpgrade: true,
+    });
   }
 
   return options;
