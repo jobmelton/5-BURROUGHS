@@ -34,6 +34,60 @@ export function findBoss(state, borough) {
   return null;
 }
 
+// ---- Instant loan (no negotiation; works against bots) ---------------------
+
+/**
+ * Grant a loan immediately at the configured auto-rate and credit the borrower.
+ * Bank loans come from a Banker (if one has the cash) else from the bank sink;
+ * mob loans come from the Boss (money from nothing) and flip the borrower dirty.
+ * Returns { ok, description, debt }.
+ */
+export function grantInstantLoan(state, borrowerId, amount, loanType) {
+  const borrower = state.players[borrowerId];
+  if (!borrower) return { ok: false, description: 'Invalid borrower.' };
+  amount = Math.round(amount);
+  if (!amount || amount <= 0) return { ok: false, description: 'Invalid loan amount.' };
+  if (loanType === 'bank' && borrower.status.hasMobDebt && CONFIG.lending.mobDebtLockout) {
+    return { ok: false, description: 'You have mob debt — the mob is your only lender.' };
+  }
+
+  const borough = (borrower.track === 'outer' && state.board[borrower.position])
+    ? state.board[borrower.position].borough
+    : (borrower.status.pitEntryBorough || 1);
+
+  let lenderId = null;
+  let lenderName = loanType === 'mob' ? 'the mob' : 'the bank';
+  if (loanType === 'mob') {
+    const boss = findBoss(state, borough);
+    if (boss) { lenderId = boss.id; lenderName = boss.name; }
+  } else {
+    const banker = findBanker(state, borough);
+    if (banker && banker.cash >= amount) { banker.cash -= amount; lenderId = banker.id; lenderName = banker.name; }
+  }
+
+  const rate = loanType === 'mob' ? CONFIG.lending.autoMobRate : CONFIG.lending.autoBankRate;
+  const paymentPerGo = Math.round(amount * rate);
+  const debt = {
+    id: `loan-${++_loanId}`, lenderId, loanType,
+    principalRemaining: amount, rate, spaceIndex: null, paymentPerGo,
+  };
+  borrower.debts.push(debt);
+  borrower.cash += amount;
+
+  if (loanType === 'mob') {
+    borrower.status.hasMobDebt = true;
+    for (const role of borrower.roles) {
+      if (role.clean === true) { role.clean = false; borrower.status.roleDirty = true; }
+    }
+  }
+
+  return {
+    ok: true,
+    debt,
+    description: `Borrowed $${amount} from ${lenderName} at ${Math.round(rate * 100)}%/GO ($${paymentPerGo}/GO).${loanType === 'mob' ? ' Roles flipped dirty.' : ''}`,
+  };
+}
+
 // ---- Loan requests ---------------------------------------------------------
 
 /**

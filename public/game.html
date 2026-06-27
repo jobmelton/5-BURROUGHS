@@ -172,7 +172,6 @@
           <button id="rollBtn" class="btn btn-gold w-full text-lg py-3 mb-2 hidden">Roll Dice</button>
           <div id="rollResult" class="hidden text-sm bg-dark/50 rounded p-2 mb-2 space-y-1"></div>
           <div id="optionsPanel" class="space-y-1.5 mb-2"></div>
-          <div id="borrowPanel" class="space-y-1.5 mb-2"></div>
           <button id="endTurnBtn" class="btn bg-gray-600 hover:bg-gray-500 text-white w-full hidden">End Turn</button>
         </div>
 
@@ -461,18 +460,7 @@ function renderPlayerInfo() {
     }).join('');
   }
 
-  // Debts
-  const debtEl = document.getElementById('debtList');
-  if (!me.debts || me.debts.length === 0) {
-    debtEl.innerHTML = '<span class="text-gray-600 italic">None</span>';
-  } else {
-    debtEl.innerHTML = me.debts.map(d =>
-      `<div class="flex justify-between bg-dark/40 rounded px-2 py-1">
-        <span class="text-red-400">${d.type || 'Loan'}</span>
-        <span class="text-red-300">$${d.remaining || d.amount}</span>
-      </div>`
-    ).join('');
-  }
+  // (Debts list is rendered above from the money summary.)
 
   // Other players
   const othEl = document.getElementById('otherPlayers');
@@ -733,7 +721,6 @@ function renderTurn() {
   const actionPanel = document.getElementById('actionPanel');
   if (state.isMyTurn) {
     actionPanel.classList.remove('hidden');
-    renderBorrow();
     if (!hasRolled && !isRolling) {
       // Auto-roll: the dice roll happens automatically at the start of your turn.
       document.getElementById('rollResult').classList.add('hidden');
@@ -805,6 +792,11 @@ function renderOptions(options) {
   const panel = document.getElementById('optionsPanel');
   if (!options || options.length === 0) { panel.innerHTML = ''; return; }
 
+  // price of the lot you landed on (so a borrow can cover the buy)
+  const buyOpt = options.find(o => o.action === 'buy');
+  const buyPrice = buyOpt ? buyOpt.cost : 0;
+  const buyIdx = buyOpt && buyOpt.spaceIndex !== undefined ? buyOpt.spaceIndex : (options[0] && options[0].spaceIndex);
+
   panel.innerHTML = '<div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Property Options</div>' +
     options.map(opt => {
       const label = opt.action || opt.type || opt;
@@ -823,10 +815,12 @@ function renderOptions(options) {
         </button>`;
       }
       if (actionName === 'borrow_bank' || actionName === 'borrow_mob') {
-        return `<button class="btn bg-red-800 hover:bg-red-700 text-white w-full text-left"
-          onclick="doAction('${actionName}', ${JSON.stringify(params)})">
-          <span class="font-bold">${actionName === 'borrow_bank' ? 'Bank Loan' : 'Mob Loan'}</span>${cost}
-          <span class="block text-[10px] text-gray-300 font-normal">${desc}</span>
+        // Borrow only to cover the shortfall on the lot you landed on, then buy it.
+        const kind = actionName === 'borrow_bank' ? 'bank' : 'mob';
+        return `<button class="btn ${kind === 'mob' ? 'bg-red-900 hover:bg-red-800' : 'bg-sky-800 hover:bg-sky-700'} text-white w-full text-left"
+          onclick="borrowAndBuy(${buyIdx}, ${buyPrice}, '${kind}')">
+          <span class="font-bold">Borrow &amp; Buy (${kind === 'mob' ? 'Mob' : 'Bank'})</span>
+          <span class="block text-[10px] text-gray-300 font-normal">Borrow the shortfall, then buy for $${buyPrice.toLocaleString()}</span>
         </button>`;
       }
       if (actionName === 'mortgage') {
@@ -855,41 +849,49 @@ function renderBuildOptions() {
   if (mySpaces.length === 0) { panel.innerHTML = ''; return; }
 
   panel.innerHTML = `<div class="text-xs text-gold/80 uppercase tracking-wider mb-1 flex items-center gap-1">Build / Upgrade <span class="text-[9px] text-gray-500 normal-case tracking-normal">· anytime</span></div>
-    <div class="max-h-44 overflow-y-auto space-y-1">
+    <div class="max-h-56 overflow-y-auto space-y-2">
     ${mySpaces.map(s => {
-      const nb = s.nextBuild;
-      if (!nb) {
-        return `<div class="text-[10px] text-gray-600 px-1 py-1">#${s.index} ${spaceLabel(s)} — maxed / blocked</div>`;
-      }
-      const aff = nb.affordable;
-      return `<button class="btn btn-sm w-full text-left text-white ${aff ? 'bg-emerald-800 hover:bg-emerald-700' : 'bg-gray-800 opacity-60'}" ${aff ? '' : 'disabled'}
-        onclick="doAction('build',{spaceIndex:${s.index}})">
-        <span class="text-[10px] font-semibold">#${s.index} ${spaceLabel(s)} → ${nb.label}</span>
-        <span class="block text-[10px] ${aff ? 'text-green-300' : 'text-red-300'}">$${nb.cost.toLocaleString()}${aff ? '' : ' — over budget'}</span>
-      </button>`;
+      const opts = s.buildOptions || [];
+      if (opts.length === 0) return `<div class="text-[10px] text-gray-600 px-1">#${s.index} ${spaceLabel(s)} — maxed</div>`;
+      if (opts[0].blocked) return `<div class="text-[10px] text-gray-500 px-1">#${s.index} ${spaceLabel(s)} — ${opts[0].reason}</div>`;
+      // each buildable structure is its own button; if short, it becomes "Borrow & Build"
+      return `<div class="bg-dark/40 rounded p-1">
+        <div class="text-[10px] text-gray-400 mb-0.5">#${s.index} ${spaceLabel(s)}</div>
+        <div class="flex flex-col gap-0.5">
+        ${opts.map(o => {
+          const aff = o.affordable;
+          return `<button class="btn btn-sm w-full text-left text-white ${aff ? 'bg-emerald-800 hover:bg-emerald-700' : 'bg-amber-900 hover:bg-amber-800'}"
+            onclick="${aff ? `doAction('build',{spaceIndex:${s.index},buildingType:'${o.type}'})` : `borrowAndBuild(${s.index},'${o.type}',${o.cost})`}">
+            <span class="text-[10px] font-semibold">${o.label}</span>
+            <span class="float-right text-[10px] ${aff ? 'text-green-300' : 'text-amber-200'}">$${o.cost.toLocaleString()}${aff ? '' : ' · borrow'}</span>
+          </button>`;
+        }).join('')}
+        </div>
+      </div>`;
     }).join('')}
     </div>`;
 }
 
-// Borrow: bank or mob loan (prompts for an amount, sends the request to the lender).
-function renderBorrow() {
-  const panel = document.getElementById('borrowPanel');
-  if (!state.isMyTurn) { panel.innerHTML = ''; return; }
-  panel.innerHTML = `<div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Borrow</div>
-    <div class="flex gap-1">
-      <button class="btn btn-sm w-full text-white bg-sky-800 hover:bg-sky-700" onclick="requestLoan('bank')">Bank Loan</button>
-      <button class="btn btn-sm w-full text-white bg-red-900 hover:bg-red-800" onclick="requestLoan('mob')">Mob Loan</button>
-    </div>`;
+// Borrow only fires to cover a shortfall on a build or buy. Defaults to a bank
+// loan (mob if you're mob-locked), borrows just the gap, then completes the action.
+function borrowKind() { return state.me?.status?.hasMobDebt ? 'mob' : 'bank'; }
+
+async function borrowAndBuild(spaceIndex, buildingType, cost) {
+  const shortfall = Math.max(0, cost - state.me.cash);
+  const kind = borrowKind();
+  if (!confirm(`You're $${shortfall.toLocaleString()} short. Borrow $${shortfall.toLocaleString()} from the ${kind === 'mob' ? 'mob' : 'bank'} and build?`)) return;
+  const r = await api('POST', `/api/games/${GAME_ID}/action`, { action: 'borrow', params: { amount: shortfall, loanType: kind } });
+  if (r.error) { addFeedEntry(`Error: ${r.error}`); await refreshState(); return; }
+  addFeedEntry(r.description);
+  await doAction('build', { spaceIndex, buildingType }); // build never ends the turn
 }
 
-async function requestLoan(kind) {
-  const amtStr = prompt(`How much do you want to borrow from the ${kind === 'mob' ? 'mob' : 'bank'}?`, '500');
-  const amount = parseInt(amtStr, 10);
-  if (!amount || amount <= 0) return;
-  const action = kind === 'mob' ? 'borrow_mob' : 'borrow_bank';
-  const result = await api('POST', `/api/games/${GAME_ID}/action`, { action, params: { amount } });
-  addFeedEntry(result.error ? `Error: ${result.error}` : (result.description || 'Loan requested — waiting for the lender to set terms.'));
-  await refreshState();
+async function borrowAndBuy(spaceIndex, price, kind) {
+  const shortfall = Math.max(0, price - state.me.cash);
+  const r = await api('POST', `/api/games/${GAME_ID}/action`, { action: 'borrow', params: { amount: shortfall, loanType: kind } });
+  if (r.error) { addFeedEntry(`Error: ${r.error}`); await refreshState(); return; }
+  addFeedEntry(r.description);
+  await doAction('buy', { spaceIndex }); // buy ends the turn
 }
 
 // ---- Actions ----------------------------------------------------------------

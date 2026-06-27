@@ -22,7 +22,7 @@ import { getPropertyOptions, executePropertyAction, acceptFlip } from './propert
 import { getCantPayOptions, startAuction, submitAuctionBid, closeAuction, acceptMobDeal, mortgageForRent } from './rentFlow.js';
 import { createNotification, getPlayerNotifications, respondToNotification, tickNotifications, NOTIF_TYPES } from './notifications.js';
 import { proposePartnership, acceptPartnership, splitRent } from './partnerships.js';
-import { requestBankLoan, requestMobLoan, offerBankRate, offerMobTerms, acceptLoan, processLoanPaymentsOnGo } from './lending.js';
+import { requestBankLoan, requestMobLoan, offerBankRate, offerMobTerms, acceptLoan, processLoanPaymentsOnGo, grantInstantLoan } from './lending.js';
 import { makeDormant, activateDormant } from './dormant.js';
 import * as db from './db.js';
 
@@ -256,9 +256,12 @@ app.get('/api/games/:id/state', requireAuth, (req, res) => {
       haloBonus: sp.haloBonus,
       partnership: sp.partnership,
       isMine: sp.ownerId === myPlayer.id,
-      // next build step (cheapest) for the viewer's own lots — powers the Build list
-      nextBuild: sp.ownerId === myPlayer.id
-        ? (() => { const o = getBuildOptions(state, myPlayer.id, sp.index)[0]; return o ? { type: o.type, label: o.label, cost: o.cost, affordable: o.affordable } : null; })()
+      // build choices for the viewer's own lots — powers the Build picker
+      buildOptions: sp.ownerId === myPlayer.id
+        ? getBuildOptions(state, myPlayer.id, sp.index).map(o => ({
+            type: o.type, label: o.label, cost: o.cost, affordable: o.affordable,
+            rentResult: o.rentResult, blocked: o.type === '_blocked', reason: o.reason || null,
+          }))
         : undefined,
     })),
     notifications: getPlayerNotifications(state, myPlayer.id),
@@ -476,6 +479,7 @@ function executeAction(state, player, action, params) {
     case 'pass': return { ok: true, description: 'Passed.' };
     case 'borrow_bank': return requestBankLoan(state, player.id, params.amount, params.spaceIndex);
     case 'borrow_mob': return requestMobLoan(state, player.id, params.amount, params.spaceIndex);
+    case 'borrow': return grantInstantLoan(state, player.id, params.amount, params.loanType || 'bank');
     case 'build': return buildOnSpace(state, player.id, params.spaceIndex, params.buildingType);
     case 'mortgage': return mortgageForRent(state, player.id, params.spaceIndex);
     case 'auction': return startAuction(state, player.id, params.spaceIndex, params.startingBid);

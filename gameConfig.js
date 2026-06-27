@@ -277,6 +277,10 @@ export const CONFIG = {
     mobForeclosureToMob: true,       // mob foreclosure = property becomes Boss's
     mobDebtLockout: true,            // while in mob debt, mob is your only lender
     mobDebtPayoffMultiplier: 1.5,    // pay back 1.5x borrowed to escape mob ownership
+    // Instant loans (used by the "borrow & buy/build" buttons): granted immediately
+    // at these per-GO rates without negotiation, so borrowing works against bots.
+    autoBankRate: 0.10,              // 10% of principal per GO
+    autoMobRate: 0.20,              // 20% per GO (mob is pricier + flips roles dirty)
   },
 
   // ---- Partnerships -------------------------------------------------------
