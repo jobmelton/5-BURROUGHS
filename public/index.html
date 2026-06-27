@@ -242,7 +242,7 @@
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed to create game');
-        window.location.href = '/game/' + data.id;
+        window.location.href = '/game/' + data.gameId;
       } catch (err) {
         alert(err.message);
       }

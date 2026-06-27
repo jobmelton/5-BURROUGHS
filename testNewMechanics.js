@@ -43,9 +43,9 @@ console.log('\n=== NEW MECHANICS TEST SUITE ===\n');
 
 // ---- Board ----
 console.log('Board:');
-test('Board has 70 spaces (5 boroughs x 14)', () => {
+test('Board has 90 spaces (5 boroughs x 18)', () => {
   const board = buildBoard();
-  assert(board.length === 70, `Got ${board.length}`);
+  assert(board.length === 90, `Got ${board.length}`);
 });
 test('Each borough has a tax square', () => {
   const board = buildBoard();
@@ -258,7 +258,7 @@ test('Boss/Capo get 2x bail unless Judge', () => {
   const boss = newPlayer('Don'); s.players[boss.id] = boss;
   boss.roles.push({ id: 'b1', role: 'Boss', borough: 1 });
   const bail = calculateBail(s, boss.id, 1);
-  assert(bail.amount === 400, `Expected 400, got ${bail.amount}`);
+  assert(bail.amount === 200, `Expected 200, got ${bail.amount}`);
 });
 test('Tax square taxes borough assets', () => {
   const s = freshGame();

@@ -9,7 +9,7 @@ const { pricing } = CONFIG;
 
 // How the spaces in each borough are laid out, in order around the loop.
 // Tunable: the mix and count of space types per borough.
-// 16 spaces per borough = 80 total. Mix of vacant lots and abandoned buildings
+// 18 spaces per borough = 90 total. Mix of vacant lots and abandoned buildings
 // of increasing value. Abandoned properties cost more (premium locations) but
 // require a demo fee before rebuilding. Higher-tier abandoneds are rarer and
 // clustered in later boroughs for natural price escalation.

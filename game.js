@@ -95,7 +95,7 @@ function smokeTest() {
 
   // contiguity / build gate
   const cb = canBuild(s, human.id, buy.index);
-  out.push(`Can build on it? ${cb.ok ? 'yes' : 'no — ' + cb.reason} (borough ${buy.borough} needs ${CONFIG.build.contiguityRequired[buy.borough-1]} contiguous)`);
+  out.push(`Can build on it? ${cb.ok ? 'yes' : 'no — ' + cb.reason} (tier 1 needs ${CONFIG.build.tiers[0].contiguous} contiguous)`);
   out.push(`Build cost on that lot: ${JSON.stringify(buildCost(buy))}`);
   out.push(`Effective rent: $${effectiveRent(buy)}`);
 

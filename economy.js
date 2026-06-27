@@ -238,7 +238,7 @@ export function canBuild(state, playerId, index) {
 export function buildCost(space, buildingType) {
   if (!buildingType) {
     // fallback for legacy: find cheapest tier 1 option
-    const t1 = build.tiers[0]?.options[0];
+    const t1 = build.tiers[0]?.steps[0];
     if (!t1) return { build: 0, demo: 0, total: 0 };
     const base = Math.round(space.basePrice * t1.costMult);
     const demo = space.type.startsWith('abandoned') ? Math.round(space.basePrice * build.demoCost) : 0;
