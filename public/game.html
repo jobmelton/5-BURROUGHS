@@ -722,16 +722,25 @@ function renderTurn() {
   if (state.isMyTurn) {
     actionPanel.classList.remove('hidden');
     if (state.me.rolledThisTurn) {
-      // Already rolled this turn (e.g. after a page refresh) — restore the post-roll view.
+      // Already rolled this turn (refresh, or an older game with no cached roll).
       hasRolled = true;
-      if (state.me.lastRoll && !isRolling) showRollResult(state.me.lastRoll);
-    } else if (!isRolling) {
-      // Auto-roll: the dice roll happens automatically at the start of your turn.
+      if (state.me.lastRoll && !isRolling) {
+        showRollResult(state.me.lastRoll);    // restore dice + landing options + End Turn
+      } else {
+        // no cached result — make sure the player can still end the turn (never stuck)
+        document.getElementById('rollBtn').classList.add('hidden');
+        document.getElementById('rollResult').classList.add('hidden');
+        document.getElementById('optionsPanel').innerHTML = '';
+        document.getElementById('endTurnBtn').classList.remove('hidden');
+      }
+    } else {
+      // Not rolled yet — auto-roll, but keep a manual Roll button as a fallback.
+      const rb = document.getElementById('rollBtn');
+      rb.classList.remove('hidden'); rb.disabled = false; rb.textContent = 'Roll Dice';
       document.getElementById('rollResult').classList.add('hidden');
       document.getElementById('optionsPanel').innerHTML = '';
       document.getElementById('endTurnBtn').classList.add('hidden');
-      isRolling = true;
-      rollDice();
+      if (!hasRolled && !isRolling) { isRolling = true; rollDice(); }
     }
   } else {
     actionPanel.classList.add('hidden');
