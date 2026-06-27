@@ -140,7 +140,14 @@
 
       <!-- CENTER MAP -->
       <main id="panelMap" class="flex-1 overflow-y-auto p-2 lg:p-4 flex flex-col gap-2">
-        <h2 class="text-gold font-heading text-lg text-center lg:text-xl">Borough Map</h2>
+        <div class="flex items-center justify-center gap-3">
+          <h2 class="text-gold font-heading text-lg lg:text-xl">The Board</h2>
+          <div class="flex rounded overflow-hidden border border-gold/40 text-xs">
+            <button id="tabViewBoard" onclick="setView('pentagon')" class="px-3 py-1 btn-gold">Board</button>
+            <button id="tabViewHood" onclick="setView('neighborhood')" class="px-3 py-1 font-semibold text-gold">Neighborhood</button>
+          </div>
+        </div>
+        <div id="hoodControls" class="hidden flex flex-wrap items-center justify-center gap-1"></div>
         <div id="boroughMap" class="flex flex-col gap-2 flex-1"></div>
         <!-- Pools -->
         <div class="flex justify-center gap-4 text-xs text-gray-400 mt-1">
@@ -278,10 +285,86 @@ function showGame() {
 function renderAll() {
   if (!state || !state.me) return;
   renderPlayerInfo();
-  renderMap();
+  renderCenter();
   renderTurn();
   renderNotifications();
   renderFeed();
+}
+
+// ---- Center view: pentagon board vs isometric neighborhood ------------------
+let boardView = 'pentagon';     // 'pentagon' | 'neighborhood'
+let hoodBorough = 1;            // borough shown in the neighborhood view
+
+function renderCenter() {
+  if (boardView === 'neighborhood') renderNeighborhood(hoodBorough);
+  else renderMap();
+}
+
+function setView(v) {
+  boardView = v;
+  // default the neighborhood to the player's current borough (when out on the board)
+  if (v === 'neighborhood' && (state.me.track || 'outer') === 'outer') {
+    const here = state.board.find(s => s.index === state.me.position);
+    if (here) hoodBorough = here.borough;
+  }
+  const onBoard = v === 'pentagon';
+  const tb = document.getElementById('tabViewBoard'), th = document.getElementById('tabViewHood');
+  tb.className = 'px-3 py-1 ' + (onBoard ? 'btn-gold' : 'font-semibold text-gold');
+  th.className = 'px-3 py-1 ' + (onBoard ? 'font-semibold text-gold' : 'btn-gold');
+  document.getElementById('hoodControls').classList.toggle('hidden', onBoard);
+  renderCenter();
+}
+function setHoodBorough(b) { hoodBorough = b; renderCenter(); }
+
+// Isometric "neighborhood" view of one borough: vacant lots + built sprites.
+function renderNeighborhood(borough) {
+  // borough selector
+  document.getElementById('hoodControls').innerHTML = BOROUGH_NAMES.map((nm, i) => {
+    const b = i + 1, active = b === borough, hex = BOROUGH_HEX['b' + b];
+    return `<button onclick="setHoodBorough(${b})" class="px-2 py-1 rounded text-xs font-semibold" `
+      + `style="background:${active ? hex : 'transparent'};color:${active ? '#0d0c0b' : hex};border:1px solid ${hex}">${nm}</button>`;
+  }).join('');
+
+  const lots = state.board.filter(s => s.borough === borough && s.basePrice > 0);
+  const TW = 132, TH = 66, COLS = 4, V = 900, ox = V / 2, oy = 150;
+  const hex = BOROUGH_HEX['b' + borough];
+
+  // compute screen positions (with extra spacing so sprites/labels don't collide),
+  // then paint back-to-front (by screen Y)
+  const STEPX = TW * 0.62, STEPY = TH * 0.92;
+  const tiles = lots.map((sp, i) => {
+    const col = i % COLS, row = Math.floor(i / COLS);
+    return { sp, sx: ox + (col - row) * STEPX, sy: oy + (col + row) * STEPY };
+  }).sort((a, b) => a.sy - b.sy);
+
+  const parts = [`<svg viewBox="0 0 ${V} ${V}" class="w-full" preserveAspectRatio="xMidYMid meet" style="height:100%;max-height:78vh;display:block;margin:auto">`];
+  parts.push(`<text x="${ox}" y="46" text-anchor="middle" fill="${hex}" font-size="26" font-weight="bold">${BOROUGH_NAMES[borough-1]}</text>`);
+  parts.push(`<text x="${ox}" y="70" text-anchor="middle" fill="#6a5a3a" font-size="13" letter-spacing="2">${lots.length} lots · ${lots.filter(l=>l.ownerId).length} owned</text>`);
+
+  for (const { sp, sx, sy } of tiles) {
+    const dia = `${sx},${sy-TH/2} ${sx+TW/2},${sy} ${sx},${sy+TH/2} ${sx-TW/2},${sy}`;
+    let stroke = hex + '66', sw = 2;
+    if (sp.isMine) { stroke = '#d4a843'; sw = 3; }
+    else if (sp.ownerId) { stroke = '#8a8a8a'; sw = 2.5; }
+    const built = sp.buildLevel > 0 && sp.buildingType;
+    parts.push(`<g class="svg-space" onclick="inspectLot(${sp.index})">`);
+    parts.push(`<polygon points="${dia}" fill="${built ? '#1b1710' : '#241f15'}" stroke="${stroke}" stroke-width="${sw}"/>`);
+    if (built) {
+      const art = BUILDING_ART[sp.buildingType];
+      if (art) {
+        const aS = TW * 1.08;
+        parts.push(`<image href="/assets/buildings/${art}.png" x="${(sx-aS/2).toFixed(1)}" y="${(sy-aS*0.82).toFixed(1)}" width="${aS.toFixed(0)}" height="${aS.toFixed(0)}" preserveAspectRatio="xMidYMax meet"/>`);
+      } else {
+        parts.push(`<text x="${sx}" y="${(sy+3)}" text-anchor="middle" fill="#d4a843" font-size="12" font-weight="bold">${buildingIcon(sp.buildingType)}</text>`);
+      }
+    } else {
+      parts.push(`<text x="${sx}" y="${(sy+3)}" text-anchor="middle" fill="#8a7a55" font-size="11" font-weight="bold">VACANT</text>`);
+    }
+    parts.push(`<text x="${sx}" y="${(sy+TH/2+14).toFixed(1)}" text-anchor="middle" fill="#c9b483" font-size="11" font-weight="bold">#${sp.index} · $${sp.basePrice.toLocaleString()}</text>`);
+    parts.push(`</g>`);
+  }
+  parts.push(`</svg>`);
+  document.getElementById('boroughMap').innerHTML = parts.join('');
 }
 
 // ---- Player Info (Left Sidebar) ---------------------------------------------
