@@ -46,8 +46,36 @@ export function getAvailableTier(state, playerId, index) {
 }
 
 /**
- * Get all build options for a space: what buildings the player can construct.
- * Returns [{ type, label, cost, rentMult, roi, tier, affordable }].
+ * Get the current tier index of a space based on its buildingType.
+ * Returns -1 if nothing built, or the tier index (0-5).
+ */
+export function getCurrentTierIndex(space) {
+  if (!space.buildingType) return -1;
+  for (let i = 0; i < build.tiers.length; i++) {
+    if (build.tiers[i].options.some(o => o.type === space.buildingType)) return i;
+  }
+  return -1;
+}
+
+/**
+ * Get the total investment already sunk into this space (sum of all previous tier costs).
+ */
+export function getPreviousInvestment(space) {
+  if (!space.buildingType) return 0;
+  // find what was built and its cost multiplier
+  for (const tier of build.tiers) {
+    const opt = tier.options.find(o => o.type === space.buildingType);
+    if (opt) return Math.round(space.basePrice * opt.costMult);
+  }
+  return 0;
+}
+
+/**
+ * Get build options for a space. Progressive building: must build through tiers.
+ * - If nothing built: only Tier 1 options available
+ * - If Tier 1 built: Tier 2 options available (if contiguity met), cost = difference
+ * - And so on up the tiers
+ * Returns [{ type, label, cost, upgradeCost, rentMult, roi, tier, affordable }].
  */
 export function getBuildOptions(state, playerId, index) {
   const space = state.board[index];
@@ -60,34 +88,46 @@ export function getBuildOptions(state, playerId, index) {
   if (state.codeViolations?.[space.borough]) return [];
 
   const contiguous = contiguousOwnedRun(state, playerId, index);
+  const currentTierIdx = getCurrentTierIndex(space);
+  const previousInvestment = getPreviousInvestment(space);
   const options = [];
 
-  for (const tier of build.tiers) {
-    if (contiguous < tier.contiguous) continue;
+  // determine the NEXT tier to build
+  const nextTierIdx = currentTierIdx + 1;
+
+  // if nothing built yet, also allow choosing within tier 1
+  // if already built, only allow the next tier up
+  const startIdx = currentTierIdx < 0 ? 0 : nextTierIdx;
+  const endIdx = currentTierIdx < 0 ? 1 : nextTierIdx + 1; // only show one tier at a time
+
+  for (let t = startIdx; t < Math.min(endIdx, build.tiers.length); t++) {
+    const tier = build.tiers[t];
+    if (contiguous < tier.contiguous) continue; // not enough lots
 
     for (const opt of tier.options) {
-      // skip if already built to this type or higher
-      if (space.buildingType === opt.type) continue;
-
-      const baseCost = Math.round(space.basePrice * opt.costMult);
-      const demo = space.type.startsWith('abandoned')
+      const fullCost = Math.round(space.basePrice * opt.costMult);
+      const demo = (space.type.startsWith('abandoned') && currentTierIdx < 0)
         ? Math.round(space.basePrice * build.demoCost) : 0;
-      const totalCost = baseCost + demo;
+      // upgrade cost = new tier cost minus what's already invested + demo
+      const upgradeCost = Math.max(0, fullCost - previousInvestment) + demo;
 
       options.push({
         type: opt.type,
         label: opt.label,
         costMult: opt.costMult,
-        cost: totalCost,
-        baseCost,
+        fullCost,
+        cost: upgradeCost,         // what the player actually pays (incremental)
         demo,
+        previousInvestment,
         rentMult: opt.rentMult,
         roi: opt.roi,
         tierContiguous: tier.contiguous,
         tierLabel: tier.label,
+        tierIndex: t,
         haloRadius: tier.haloRadius,
-        affordable: player.cash >= totalCost,
+        affordable: player.cash >= upgradeCost,
         rentResult: Math.round(space.baseRent * opt.rentMult),
+        isUpgrade: currentTierIdx >= 0,
       });
     }
   }
@@ -151,39 +191,27 @@ export function buildOnSpace(state, playerId, index, buildingType) {
     buildingType = check.options[0].type;
   }
 
-  const cost = buildCost(space, buildingType);
-  if (cost.total <= 0) return { ok: false, description: `Invalid building type: ${buildingType}` };
+  // find the matching option from the progressive build options
+  const options = getBuildOptions(state, playerId, index);
+  const chosen = options.find(o => o.type === buildingType);
+  if (!chosen) return { ok: false, description: `${buildingType} not available. Must build through tiers progressively.` };
 
-  // find the full option data
-  let optionData = null;
-  let tierData = null;
-  for (const tier of build.tiers) {
-    const opt = tier.options.find(o => o.type === buildingType);
-    if (opt) { optionData = opt; tierData = tier; break; }
-  }
-  if (!optionData) return { ok: false, description: `Unknown building type: ${buildingType}` };
-
-  // check contiguity requirement
-  const contiguous = contiguousOwnedRun(state, playerId, index);
-  if (contiguous < tierData.contiguous) {
-    return { ok: false, description: `${optionData.label} requires ${tierData.contiguous} contiguous lots (you have ${contiguous}).` };
-  }
+  const upgradeCost = chosen.cost; // incremental cost (full - previous investment)
 
   // check affordability (account for partnership split if applicable)
-  let playerCost = cost.total;
+  let playerCost = upgradeCost;
   let partnerCost = 0;
   if (space.partnership) {
-    playerCost = Math.round(cost.total * (space.partnership.ownerSplit / 100));
-    partnerCost = cost.total - playerCost;
+    playerCost = Math.round(upgradeCost * (space.partnership.ownerSplit / 100));
+    partnerCost = upgradeCost - playerCost;
     if (space.ownerId !== playerId) {
-      // partner is the one building
-      playerCost = Math.round(cost.total * (space.partnership.partnerSplit / 100));
-      partnerCost = cost.total - playerCost;
+      playerCost = Math.round(upgradeCost * (space.partnership.partnerSplit / 100));
+      partnerCost = upgradeCost - playerCost;
     }
   }
 
   if (player.cash < playerCost) {
-    return { ok: false, description: `Can't afford ${optionData.label}: $${playerCost} (cash $${player.cash}).` };
+    return { ok: false, description: `Can't afford ${chosen.label}: $${playerCost} (cash $${player.cash}).` };
   }
 
   // deduct cost
@@ -198,22 +226,27 @@ export function buildOnSpace(state, playerId, index, buildingType) {
   }
 
   // set building type and level
+  const previousType = space.buildingType;
   space.buildingType = buildingType;
-  space.buildLevel = tierData.contiguous; // tier level as build level
-  space.rentMultiplier = optionData.rentMult;
+  space.buildLevel = chosen.tierIndex + 1; // tier 1 = level 1, etc.
+  space.rentMultiplier = chosen.rentMult;
+
+  // find tier data for halo
+  let tierData = build.tiers[chosen.tierIndex];
 
   // apply halo to neighbors
   applyHalo(state, index, tierData);
 
   // split build cost to role holders
-  const splits = buildingCostSplit(state, space.borough, cost.total);
+  const splits = buildingCostSplit(state, space.borough, upgradeCost);
   const splitNote = splits.filter(s => s.to !== 'BANK').map(s => `${s.reason}: $${s.amount}`).join(', ');
 
-  const rentNow = Math.round(space.baseRent * optionData.rentMult * (1 + space.haloBonus));
+  const rentNow = Math.round(space.baseRent * chosen.rentMult * (1 + space.haloBonus));
+  const upgradeNote = previousType ? ` (upgraded from ${previousType})` : '';
 
   return {
     ok: true,
-    description: `Built ${optionData.label} on #${index} (b${space.borough}) for $${playerCost}${partnerCost > 0 ? ` + partner $${partnerCost}` : ''}. Rent: $${rentNow}/landing (${optionData.rentMult}x). ROI: ${Math.round(optionData.roi * 100)}%. Cash $${player.cash}.${splitNote ? ' Splits: ' + splitNote : ''}`,
+    description: `Built ${chosen.label} on #${index} (b${space.borough}) for $${playerCost}${partnerCost > 0 ? ` + partner $${partnerCost}` : ''}${upgradeNote}. Rent: $${rentNow}/landing (${chosen.rentMult}x). ROI: ${Math.round(chosen.roi * 100)}%. Cash $${player.cash}.${splitNote ? ' Splits: ' + splitNote : ''}`,
   };
 }
 
