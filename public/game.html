@@ -39,6 +39,11 @@
     ::-webkit-scrollbar-thumb { background: #d4a843; border-radius: 3px; }
     @keyframes pulse-gold { 0%,100% { box-shadow: 0 0 4px #d4a843; } 50% { box-shadow: 0 0 14px #d4a843, 0 0 20px rgba(212,168,67,0.4); } }
     .cell-pulse { animation: pulse-gold 1.2s ease-in-out infinite; }
+    /* SVG board */
+    .svg-space { cursor: pointer; transform-box: fill-box; transform-origin: center; transition: transform .12s ease; }
+    .svg-space:hover { transform: scale(1.25); }
+    .svg-me > rect { animation: pulse-gold 1.2s ease-in-out infinite; }
+    @keyframes token-bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
     .badge { @apply text-xs px-2 py-0.5 rounded-full font-semibold; }
     .btn { @apply px-3 py-1.5 rounded font-semibold text-sm transition-colors duration-150 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed; }
     .btn-gold { @apply bg-gold text-dark hover:bg-gold-dim; }
@@ -380,71 +385,103 @@ function renderPlayerInfo() {
 }
 
 // ---- Borough Map (Center) ---------------------------------------------------
+// ---- SVG pentagon board geometry --------------------------------------------
+const BOARD_VIEW = 1000;
+const BOARD_CX = 500, BOARD_CY = 530, BOARD_R = 430, SPACE_SZ = 30;
+const SPECIAL_BG = { jail:'#4a1a1a', freeParking:'#1a3a1a', tax:'#3a2a1a', career:'#1a1a3a', payday:'#2a2a1a' };
+const TOKEN_COLORS = ['#d4a843','#e74c3c','#2ecc71','#3498db','#9b59b6','#e67e22','#1abc9c','#e91e63'];
+
+// Pentagon corner i (0..4), pointing up. Corner 0 = top = start of borough 1 (GO).
+function boardCorner(i) {
+  const ang = (-90 + i * 72) * Math.PI / 180;
+  return { x: BOARD_CX + BOARD_R * Math.cos(ang), y: BOARD_CY + BOARD_R * Math.sin(ang) };
+}
+
+// Map every space index to an {x,y} along its borough's pentagon edge.
+function computeSpacePositions() {
+  const pos = {};
+  for (let b = 1; b <= 5; b++) {
+    const A = boardCorner(b - 1), B = boardCorner(b % 5);
+    const spaces = state.board.filter(s => s.borough === b);
+    spaces.forEach((s, j) => {
+      const t = j / spaces.length; // corner B reserved for next borough's space 0
+      pos[s.index] = { x: A.x + (B.x - A.x) * t, y: A.y + (B.y - A.y) * t };
+    });
+  }
+  return pos;
+}
+
 function renderMap() {
   const mapEl = document.getElementById('boroughMap');
-  mapEl.innerHTML = '';
+  const pos = computeSpacePositions();
+  const SZ = SPACE_SZ, half = SZ / 2;
+  const parts = [`<svg viewBox="0 0 ${BOARD_VIEW} ${BOARD_VIEW}" class="w-full" preserveAspectRatio="xMidYMid meet" style="height:100%;max-height:82vh;display:block;margin:auto">`];
 
-  for (let b = 1; b <= 5; b++) {
-    const spaces = state.board.filter(s => s.borough === b);
-    const bc = BOROUGH_COLORS[b - 1];
-    const hex = BOROUGH_HEX[bc];
+  // Pentagon body (the future "pit") + center title
+  const poly = [0,1,2,3,4].map(boardCorner).map(c => `${c.x.toFixed(1)},${c.y.toFixed(1)}`).join(' ');
+  parts.push(`<polygon points="${poly}" fill="#10162e" stroke="#2a3a5a" stroke-width="2"/>`);
+  parts.push(`<text x="${BOARD_CX}" y="${BOARD_CY-6}" text-anchor="middle" fill="#37476a" font-size="36" font-weight="bold" letter-spacing="3">5 BOROUGHS</text>`);
+  parts.push(`<text x="${BOARD_CX}" y="${BOARD_CY+22}" text-anchor="middle" fill="#2a3a5a" font-size="14" letter-spacing="4">THE PIT · coming soon</text>`);
 
-    const row = document.createElement('div');
-    row.className = 'bg-dark/40 rounded p-1.5';
+  // Spaces
+  for (const sp of state.board) {
+    const p = pos[sp.index];
+    const hex = BOROUGH_HEX['b' + sp.borough];
+    let bg = sp.basePrice > 0 ? hex + '33' : '#1a1a2e';
+    if (SPECIAL_BG[sp.type]) bg = SPECIAL_BG[sp.type];
+    let stroke = hex + '66', sw = 1.5;
+    if (sp.isMine) { stroke = '#d4a843'; sw = 3; }
+    else if (sp.ownerId) { stroke = '#8a8a8a'; sw = 2.5; }
+    const isMe = state.me.position === sp.index;
+    const x = (p.x - half).toFixed(1), y = (p.y - half).toFixed(1);
+    const label = SPACE_LABELS[sp.type] || sp.type.substring(0, 2).toUpperCase();
 
-    // Borough label
-    const label = document.createElement('div');
-    label.className = 'text-xs font-semibold mb-1 flex items-center gap-1.5';
-    label.innerHTML = `<span class="w-2.5 h-2.5 rounded-full inline-block" style="background:${hex}"></span>
-      <span style="color:${hex}">${BOROUGH_NAMES[b-1]}</span>
-      <span class="text-gray-600 text-[10px]">Borough ${b}</span>`;
-    row.appendChild(label);
-
-    // Cells container
-    const cells = document.createElement('div');
-    cells.className = 'flex flex-wrap gap-0.5';
-
-    for (const sp of spaces) {
-      const cell = document.createElement('div');
-      const isMe = state.me.position === sp.index;
-      const isMine = sp.isMine;
-      const isOwned = !!sp.ownerId;
-
-      let borderCls = 'border-transparent';
-      if (isMine) borderCls = 'border-gold';
-      else if (isOwned) borderCls = 'border-gray-500';
-
-      cell.className = `w-8 h-8 sm:w-9 sm:h-9 rounded border-2 ${borderCls} flex flex-col items-center justify-center cursor-pointer text-[9px] sm:text-[10px] leading-tight hover:scale-110 transition-transform relative ${isMe ? 'cell-pulse' : ''}`;
-      cell.style.background = sp.basePrice > 0 ? `${hex}22` : '#1a1a2e';
-
-      // Special space styling
-      if (sp.type === 'jail') cell.style.background = '#4a1a1a';
-      else if (sp.type === 'freeParking') cell.style.background = '#1a3a1a';
-      else if (sp.type === 'tax') cell.style.background = '#3a2a1a';
-      else if (sp.type === 'career') cell.style.background = '#1a1a3a';
-      else if (sp.type === 'payday') cell.style.background = '#2a2a1a';
-
-      // Content
-      const typeLabel = SPACE_LABELS[sp.type] || sp.type.substring(0, 2).toUpperCase();
-      let buildIcon = '';
-      if (sp.buildLevel > 0 && sp.buildingType) {
-        buildIcon = `<span class="text-[8px]">${buildingIcon(sp.buildingType)}${sp.buildLevel > 1 ? sp.buildLevel : ''}</span>`;
-      }
-
-      cell.innerHTML = `<span class="font-bold" style="color:${isMe ? '#d4a843' : '#fff'}">${sp.index}</span>
-        <span class="text-gray-400 leading-none">${typeLabel}</span>${buildIcon}`;
-
-      if (isMe) {
-        cell.innerHTML += `<span class="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-gold"></span>`;
-      }
-
-      cell.onclick = () => inspectLot(sp.index);
-      cells.appendChild(cell);
+    let g = `<g class="svg-space${isMe ? ' svg-me' : ''}" onclick="inspectLot(${sp.index})">`;
+    g += `<rect x="${x}" y="${y}" width="${SZ}" height="${SZ}" rx="4" fill="${bg}" stroke="${stroke}" stroke-width="${sw}"/>`;
+    g += `<text x="${p.x.toFixed(1)}" y="${(p.y-1).toFixed(1)}" text-anchor="middle" fill="#fff" font-size="11" font-weight="bold">${sp.index}</text>`;
+    g += `<text x="${p.x.toFixed(1)}" y="${(p.y+9).toFixed(1)}" text-anchor="middle" fill="#9aabbf" font-size="7">${label}</text>`;
+    if (sp.buildLevel > 0 && sp.buildingType) {
+      g += `<text x="${(p.x+half-2).toFixed(1)}" y="${(p.y-half+8).toFixed(1)}" text-anchor="end" fill="#d4a843" font-size="7" font-weight="bold">${buildingIcon(sp.buildingType)}</text>`;
     }
-
-    row.appendChild(cells);
-    mapEl.appendChild(row);
+    parts.push(g + `</g>`);
   }
+
+  // Borough name labels — outside the ring, drawn on top of spaces so nothing occludes them
+  for (let b = 1; b <= 5; b++) {
+    const A = boardCorner(b - 1), B = boardCorner(b % 5);
+    const mx = (A.x + B.x) / 2, my = (A.y + B.y) / 2;
+    const dx = mx - BOARD_CX, dy = my - BOARD_CY, len = Math.hypot(dx, dy) || 1;
+    const lx = mx + (dx / len) * 88, ly = my + (dy / len) * 88;
+    parts.push(`<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" dominant-baseline="middle" fill="${BOROUGH_HEX['b'+b]}" font-size="18" font-weight="bold" style="paint-order:stroke" stroke="#0d1117" stroke-width="3">${BOROUGH_NAMES[b-1]}</text>`);
+  }
+
+  // Player tokens — fanned just outside the ring along the edge
+  const byPos = {};
+  (state.players || []).forEach(pl => {
+    if (typeof pl.position !== 'number') return;
+    (byPos[pl.position] = byPos[pl.position] || []).push(pl);
+  });
+  for (const [idx, group] of Object.entries(byPos)) {
+    const p0 = pos[idx];
+    if (!p0) continue;
+    const dx = p0.x - BOARD_CX, dy = p0.y - BOARD_CY, len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len, uy = dy / len, px = -uy, py = ux; // outward + along-edge
+    group.forEach((pl, k) => {
+      const spread = (k - (group.length - 1) / 2) * 12;
+      const base = half + 8;
+      const tx = (p0.x + ux * base + px * spread).toFixed(1);
+      const ty = (p0.y + uy * base + py * spread).toFixed(1);
+      const isMe = pl.id === state.me.id;
+      const pIdx = state.players.findIndex(x => x.id === pl.id);
+      const color = isMe ? '#d4a843' : TOKEN_COLORS[(pIdx % (TOKEN_COLORS.length - 1)) + 1];
+      const initial = (pl.name || '?').charAt(0).toUpperCase();
+      parts.push(`<g pointer-events="none"><circle cx="${tx}" cy="${ty}" r="${isMe ? 9 : 8}" fill="${color}" stroke="#0d1117" stroke-width="1.5"/>` +
+        `<text x="${tx}" y="${(parseFloat(ty)+3.5).toFixed(1)}" text-anchor="middle" fill="${isMe ? '#1a1a2e' : '#fff'}" font-size="10" font-weight="bold">${initial}</text></g>`);
+    });
+  }
+
+  parts.push(`</svg>`);
+  mapEl.innerHTML = parts.join('');
 }
 
 function buildingIcon(type) {

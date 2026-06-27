@@ -228,6 +228,7 @@ app.get('/api/games/:id/state', requireAuth, (req, res) => {
     players: Object.values(state.players).map(p => ({
       id: p.id, name: p.name, isBot: p.isBot,
       cash: p.cash, netWorth: p.netWorth,
+      position: p.position,
       propertyCount: p.propertyIds.length,
       roleCount: p.roles.length,
       jailed: p.status.jailed,
