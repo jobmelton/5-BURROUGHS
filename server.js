@@ -425,6 +425,7 @@ function executeRoll(state, player) {
     }
   } else if (space.basePrice > 0 && space.ownerId === null) {
     options = getPropertyOptions(state, player.id, space.index);
+    options.forEach(o => { o.spaceIndex = space.index; }); // so the client can act on the landed lot
     events.push(`Unowned ${space.type} — $${space.basePrice}`);
   } else if (space.basePrice > 0 && space.ownerId && space.ownerId !== player.id && space.buildLevel >= 0) {
     const rent = effectiveRent(space);
