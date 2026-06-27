@@ -92,6 +92,8 @@ export function getPropertyOptions(state, playerId, spaceIndex) {
 export function executePropertyAction(state, playerId, spaceIndex, action, params = {}) {
   const player = state.players[playerId];
   const space = state.board[spaceIndex];
+  if (!player) return { ok: false, description: 'Invalid player.' };
+  if (!space) return { ok: false, description: `Invalid space index: ${spaceIndex}.` };
 
   switch (action) {
     case 'buy':

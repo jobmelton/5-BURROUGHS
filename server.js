@@ -262,9 +262,11 @@ app.post('/api/games/:id/roll', requireAuth, (req, res) => {
 
   const currentPlayerId = state._playerOrder[state._currentPlayerIdx];
   if (currentPlayerId !== myPlayer.id) return res.status(400).json({ error: 'Not your turn' });
+  if (myPlayer.status.rolledThisTurn) return res.status(400).json({ error: 'Already rolled this turn' });
 
   // execute the roll and movement
   const result = executeRoll(state, myPlayer);
+  myPlayer.status.rolledThisTurn = true;
 
   db.saveGame(state.gameId, state);
   broadcast(state, { type: 'turn_taken', data: result });
@@ -354,7 +356,7 @@ function newWebPlayer(id, name, email, isBot = false) {
     id, name, isBot, _email: email,
     cash: CONFIG.money.startingCash, position: 0,
     propertyIds: [], roles: [], dormantRoles: [], hand: [], debts: [],
-    status: { protectedByCopId: null, ownedByBossId: null, jailed: false, jailTurns: 0, hasMobDebt: false, roleDirty: false },
+    status: { protectedByCopId: null, ownedByBossId: null, jailed: false, jailTurns: 0, hasMobDebt: false, roleDirty: false, rolledThisTurn: false },
     allianceIds: [], netWorth: CONFIG.money.startingCash,
   };
 }
@@ -505,6 +507,9 @@ function executeAction(state, player, action, params) {
 function advanceTurn(state) {
   state._currentPlayerIdx = (state._currentPlayerIdx + 1) % state._playerOrder.length;
   if (state._currentPlayerIdx === 0) state._turnNumber++;
+  // Fresh turn for the incoming player — they may roll again.
+  const incoming = state.players[state._playerOrder[state._currentPlayerIdx]];
+  if (incoming) incoming.status.rolledThisTurn = false;
 }
 
 function autoBotTurn(state, bot) {
@@ -552,6 +557,15 @@ function updateNetWorth(state, player) {
 // ---- Serve frontend --------------------------------------------------------
 app.get('/', (req, res) => res.sendFile(join(__dirname, 'public', 'index.html')));
 app.get('/game/:id', (req, res) => res.sendFile(join(__dirname, 'public', 'game.html')));
+
+// ---- JSON error handler ----------------------------------------------------
+// Defense-in-depth: any uncaught error in a route returns JSON, never a raw
+// HTML stack trace (which would leak filesystem paths to the client).
+app.use((err, req, res, next) => {
+  console.error('Unhandled route error:', err);
+  if (res.headersSent) return next(err);
+  res.status(500).json({ error: 'Internal server error' });
+});
 
 // ---- Start -----------------------------------------------------------------
 server.listen(PORT, () => {
