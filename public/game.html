@@ -721,7 +721,11 @@ function renderTurn() {
   const actionPanel = document.getElementById('actionPanel');
   if (state.isMyTurn) {
     actionPanel.classList.remove('hidden');
-    if (!hasRolled && !isRolling) {
+    if (state.me.rolledThisTurn) {
+      // Already rolled this turn (e.g. after a page refresh) — restore the post-roll view.
+      hasRolled = true;
+      if (state.me.lastRoll && !isRolling) showRollResult(state.me.lastRoll);
+    } else if (!isRolling) {
       // Auto-roll: the dice roll happens automatically at the start of your turn.
       document.getElementById('rollResult').classList.add('hidden');
       document.getElementById('optionsPanel').innerHTML = '';
@@ -733,6 +737,24 @@ function renderTurn() {
     actionPanel.classList.add('hidden');
     hasRolled = false;
   }
+}
+
+// Render the roll result + landing options + End Turn (shared by rollDice and refresh-restore).
+function showRollResult(result) {
+  document.getElementById('rollBtn').classList.add('hidden');
+  const resEl = document.getElementById('rollResult');
+  resEl.classList.remove('hidden');
+  resEl.innerHTML = `
+    <div class="flex items-center gap-2 mb-1">
+      <span class="text-2xl">${dieChar(result.roll.d1)} ${dieChar(result.roll.d2)}</span>
+      <span class="text-gold font-bold text-lg">${result.roll.total}</span>
+      ${result.roll.doubles ? '<span class="badge bg-yellow-600">Doubles!</span>' : ''}
+    </div>
+    ${(result.events || []).map(e => `<div class="text-xs text-gray-300">- ${e}</div>`).join('')}
+    <div class="text-xs text-gray-500 mt-1">Cash: <span class="text-green-400">$${(result.cash || 0).toLocaleString()}</span></div>
+  `;
+  renderOptions(result.options || []);
+  document.getElementById('endTurnBtn').classList.remove('hidden');
 }
 
 // ---- Roll Dice --------------------------------------------------------------
@@ -753,35 +775,10 @@ async function rollDice() {
 
   hasRolled = true;
   isRolling = false;
-  btn.classList.add('hidden');
 
-  // Show roll result
-  const resEl = document.getElementById('rollResult');
-  resEl.classList.remove('hidden');
-  resEl.innerHTML = `
-    <div class="flex items-center gap-2 mb-1">
-      <span class="text-2xl">${dieChar(result.roll.d1)} ${dieChar(result.roll.d2)}</span>
-      <span class="text-gold font-bold text-lg">${result.roll.total}</span>
-      ${result.roll.doubles ? '<span class="badge bg-yellow-600">Doubles!</span>' : ''}
-    </div>
-    ${result.events.map(e => `<div class="text-xs text-gray-300">- ${e}</div>`).join('')}
-    <div class="text-xs text-gray-500 mt-1">Cash: <span class="text-green-400">$${(result.cash||0).toLocaleString()}</span></div>
-  `;
-
-  // Feed entries for events
+  showRollResult(result);              // dice + landing options + End Turn
   result.events.forEach(e => addFeedEntry(e));
-
-  // Show options (buy/pass/partner/flip/borrow)
-  renderOptions(result.options || []);
-
-  // Show build panel for owned properties
-  renderBuildOptions();
-
-  // Show end turn
-  document.getElementById('endTurnBtn').classList.remove('hidden');
-
-  // Refresh state
-  await refreshState();
+  await refreshState();                // updates cash/properties/build list
 }
 
 function dieChar(n) {

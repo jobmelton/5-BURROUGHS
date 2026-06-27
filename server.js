@@ -393,6 +393,8 @@ function sanitizePlayer(p) {
     netWorth: p.netWorth,
     jailed: p.status.jailed,
     jailTurns: p.status.jailTurns,
+    rolledThisTurn: p.status.rolledThisTurn || false,
+    lastRoll: p._lastRoll || null,
   };
 }
 
@@ -401,16 +403,18 @@ function executeRoll(state, player) {
   const res = moveAndResolve(state, player, roll);
   const events = [...res.events];
   let options = [];
+  // Cache the roll result so a page refresh mid-turn can restore the post-roll view.
+  const finish = (result) => { player._lastRoll = result; return result; };
 
   // jail / pit entry / pit ring fully handled by movement.js
   if (res.done) {
     tickNotifications(state);
     updateNetWorth(state, player);
-    return {
+    return finish({
       roll, events, position: player.position, track: player.track,
       space: res.space ? { index: res.space.index, type: res.space.type, borough: res.space.borough, basePrice: res.space.basePrice } : null,
       options, cash: player.cash,
-    };
+    });
   }
 
   // landed on an OUTER space — resolve career / property / rent here
@@ -464,12 +468,12 @@ function executeRoll(state, player) {
   tickNotifications(state);
   updateNetWorth(state, player);
 
-  return {
+  return finish({
     roll, events, position: player.position, track: player.track,
     space: { index: space.index, type: space.type, borough: space.borough, basePrice: space.basePrice },
     options,
     cash: player.cash,
-  };
+  });
 }
 
 function executeAction(state, player, action, params) {
@@ -496,7 +500,7 @@ function advanceTurn(state) {
   if (state._currentPlayerIdx === 0) state._turnNumber++;
   // Fresh turn for the incoming player — they may roll again.
   const incoming = state.players[state._playerOrder[state._currentPlayerIdx]];
-  if (incoming) incoming.status.rolledThisTurn = false;
+  if (incoming) { incoming.status.rolledThisTurn = false; incoming._lastRoll = null; }
 }
 
 function autoBotTurn(state, bot) {
