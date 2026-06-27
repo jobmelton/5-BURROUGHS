@@ -25,80 +25,220 @@ export function contiguousOwnedRun(state, playerId, index) {
   return run;
 }
 
-/** Can this player build on this space? (contiguity rule scales by borough) */
-export function canBuild(state, playerId, index) {
-  const space = state.board[index];
-  if (space.ownerId !== playerId) return { ok: false, reason: 'not owner' };
-  if (space.buildLevel >= build.maxBuildLevel) return { ok: false, reason: 'max level' };
-  // strike check: building shut down in this borough?
-  if (state.strikeBoroughs?.[space.borough] > 0) {
-    return { ok: false, reason: `strike in borough ${space.borough} (${state.strikeBoroughs[space.borough]} turns left)` };
-  }
-  const need = build.contiguityRequired[space.borough - 1];
-  const have = contiguousOwnedRun(state, playerId, index);
-  if (have < need) return { ok: false, reason: `need ${need} contiguous, have ${have}` };
-  return { ok: true };
-}
+// ---- TIER-BASED BUILDING SYSTEM -------------------------------------------
 
-/** Build cost for the next level on a space (and demo surcharge if abandoned). */
-export function buildCost(space) {
-  const base = Math.round(space.basePrice * pricing.buildCostFractionOfPrice);
-  const demo = space.type.startsWith('abandoned')
-    ? Math.round(space.basePrice * pricing.demoCost)
-    : 0;
-  return { build: base, demo, total: base + demo };
+/**
+ * Get the highest building tier available to a player at a space,
+ * based on how many contiguous lots they own.
+ * Returns { tier, contiguous, options } or null.
+ */
+export function getAvailableTier(state, playerId, index) {
+  const space = state.board[index];
+  if (space.ownerId !== playerId) return null;
+  const contiguous = contiguousOwnedRun(state, playerId, index);
+
+  // find highest tier this contiguity unlocks
+  let bestTier = null;
+  for (const tier of build.tiers) {
+    if (contiguous >= tier.contiguous) bestTier = tier;
+  }
+  return bestTier ? { tier: bestTier, contiguous } : null;
 }
 
 /**
- * Build the next level on a space: check contiguity, deduct cost, bump level,
- * and radiate the value halo to neighbors.
+ * Get all build options for a space: what buildings the player can construct.
+ * Returns [{ type, label, cost, rentMult, roi, tier, affordable }].
+ */
+export function getBuildOptions(state, playerId, index) {
+  const space = state.board[index];
+  const player = state.players[playerId];
+  if (!player || space.ownerId !== playerId) return [];
+
+  // strike check
+  if (state.strikeBoroughs?.[space.borough] > 0) return [];
+  // code violation check
+  if (state.codeViolations?.[space.borough]) return [];
+
+  const contiguous = contiguousOwnedRun(state, playerId, index);
+  const options = [];
+
+  for (const tier of build.tiers) {
+    if (contiguous < tier.contiguous) continue;
+
+    for (const opt of tier.options) {
+      // skip if already built to this type or higher
+      if (space.buildingType === opt.type) continue;
+
+      const baseCost = Math.round(space.basePrice * opt.costMult);
+      const demo = space.type.startsWith('abandoned')
+        ? Math.round(space.basePrice * build.demoCost) : 0;
+      const totalCost = baseCost + demo;
+
+      options.push({
+        type: opt.type,
+        label: opt.label,
+        costMult: opt.costMult,
+        cost: totalCost,
+        baseCost,
+        demo,
+        rentMult: opt.rentMult,
+        roi: opt.roi,
+        tierContiguous: tier.contiguous,
+        tierLabel: tier.label,
+        haloRadius: tier.haloRadius,
+        affordable: player.cash >= totalCost,
+        rentResult: Math.round(space.baseRent * opt.rentMult),
+      });
+    }
+  }
+
+  return options;
+}
+
+/** Can this player build on this space? */
+export function canBuild(state, playerId, index) {
+  const space = state.board[index];
+  if (space.ownerId !== playerId) return { ok: false, reason: 'not owner' };
+  if (space.buildLevel < 0) return { ok: false, reason: 'mortgaged' };
+  if (state.strikeBoroughs?.[space.borough] > 0) {
+    return { ok: false, reason: `strike in borough ${space.borough} (${state.strikeBoroughs[space.borough]} turns left)` };
+  }
+  if (state.codeViolations?.[space.borough]) {
+    return { ok: false, reason: `code violation in borough ${space.borough} — pay $${state.codeViolations[space.borough].penalty} first` };
+  }
+  const options = getBuildOptions(state, playerId, index);
+  if (options.length === 0) return { ok: false, reason: 'no build options (need more contiguous lots or already max)' };
+  return { ok: true, options };
+}
+
+/** Build cost for a specific building type on a space. */
+export function buildCost(space, buildingType) {
+  if (!buildingType) {
+    // fallback for legacy: find cheapest tier 1 option
+    const t1 = build.tiers[0]?.options[0];
+    if (!t1) return { build: 0, demo: 0, total: 0 };
+    const base = Math.round(space.basePrice * t1.costMult);
+    const demo = space.type.startsWith('abandoned') ? Math.round(space.basePrice * build.demoCost) : 0;
+    return { build: base, demo, total: base + demo };
+  }
+  // find the option across all tiers
+  for (const tier of build.tiers) {
+    const opt = tier.options.find(o => o.type === buildingType);
+    if (opt) {
+      const base = Math.round(space.basePrice * opt.costMult);
+      const demo = space.type.startsWith('abandoned') ? Math.round(space.basePrice * build.demoCost) : 0;
+      return { build: base, demo, total: base + demo, rentMult: opt.rentMult, haloRadius: tier.haloRadius, tierIndex: build.tiers.indexOf(tier) };
+    }
+  }
+  return { build: 0, demo: 0, total: 0 };
+}
+
+/**
+ * Build a specific building type on a space.
+ * Replaces the old generic buildOnSpace. Player chooses what to build.
  * Returns { ok, description }.
  */
-export function buildOnSpace(state, playerId, index) {
+export function buildOnSpace(state, playerId, index, buildingType) {
+  const space = state.board[index];
+  const player = state.players[playerId];
+  if (!player) return { ok: false, description: 'Invalid player.' };
+
   const check = canBuild(state, playerId, index);
   if (!check.ok) return { ok: false, description: `Can't build: ${check.reason}` };
 
-  const space = state.board[index];
-  const player = state.players[playerId];
-  const cost = buildCost(space);
-  if (player.cash < cost.total) {
-    return { ok: false, description: `Can't afford build: $${cost.total} (cash $${player.cash})` };
+  // if no type specified, use first available option
+  if (!buildingType && check.options?.length > 0) {
+    buildingType = check.options[0].type;
   }
 
-  player.cash -= cost.total;
-  space.buildLevel++;
-  applyHalo(state, index);
+  const cost = buildCost(space, buildingType);
+  if (cost.total <= 0) return { ok: false, description: `Invalid building type: ${buildingType}` };
 
-  // split build cost to role holders in this borough
+  // find the full option data
+  let optionData = null;
+  let tierData = null;
+  for (const tier of build.tiers) {
+    const opt = tier.options.find(o => o.type === buildingType);
+    if (opt) { optionData = opt; tierData = tier; break; }
+  }
+  if (!optionData) return { ok: false, description: `Unknown building type: ${buildingType}` };
+
+  // check contiguity requirement
+  const contiguous = contiguousOwnedRun(state, playerId, index);
+  if (contiguous < tierData.contiguous) {
+    return { ok: false, description: `${optionData.label} requires ${tierData.contiguous} contiguous lots (you have ${contiguous}).` };
+  }
+
+  // check affordability (account for partnership split if applicable)
+  let playerCost = cost.total;
+  let partnerCost = 0;
+  if (space.partnership) {
+    playerCost = Math.round(cost.total * (space.partnership.ownerSplit / 100));
+    partnerCost = cost.total - playerCost;
+    if (space.ownerId !== playerId) {
+      // partner is the one building
+      playerCost = Math.round(cost.total * (space.partnership.partnerSplit / 100));
+      partnerCost = cost.total - playerCost;
+    }
+  }
+
+  if (player.cash < playerCost) {
+    return { ok: false, description: `Can't afford ${optionData.label}: $${playerCost} (cash $${player.cash}).` };
+  }
+
+  // deduct cost
+  player.cash -= playerCost;
+
+  // deduct partner's share if partnership
+  if (space.partnership && partnerCost > 0) {
+    const partner = state.players[space.partnership.partnerId] || state.players[space.ownerId];
+    if (partner && partner.id !== playerId && partner.cash >= partnerCost) {
+      partner.cash -= partnerCost;
+    }
+  }
+
+  // set building type and level
+  space.buildingType = buildingType;
+  space.buildLevel = tierData.contiguous; // tier level as build level
+  space.rentMultiplier = optionData.rentMult;
+
+  // apply halo to neighbors
+  applyHalo(state, index, tierData);
+
+  // split build cost to role holders
   const splits = buildingCostSplit(state, space.borough, cost.total);
   const splitNote = splits.filter(s => s.to !== 'BANK').map(s => `${s.reason}: $${s.amount}`).join(', ');
 
+  const rentNow = Math.round(space.baseRent * optionData.rentMult * (1 + space.haloBonus));
+
   return {
     ok: true,
-    description: `Built level ${space.buildLevel} on #${index} (b${space.borough}) for $${cost.total}. Cash $${player.cash}.${splitNote ? ' Splits: ' + splitNote : ''}`,
+    description: `Built ${optionData.label} on #${index} (b${space.borough}) for $${playerCost}${partnerCost > 0 ? ` + partner $${partnerCost}` : ''}. Rent: $${rentNow}/landing (${optionData.rentMult}x). ROI: ${Math.round(optionData.roi * 100)}%. Cash $${player.cash}.${splitNote ? ' Splits: ' + splitNote : ''}`,
   };
 }
 
 /**
- * Radiate the value halo from a built space to its neighbors within radius.
- * Halo strength decays per space of distance; total bonus capped per config.
+ * Radiate the value halo from a built space. Tier determines radius and strength.
+ * Higher-tier builds radiate further and stronger — cheap boroughs can become
+ * more valuable than undeveloped expensive boroughs.
  */
-export function applyHalo(state, sourceIndex) {
+export function applyHalo(state, sourceIndex, tierData) {
   const source = state.board[sourceIndex];
-  const { radius, decayPerSpace, stackCap } = build.halo;
-  // halo strength based on build level (use generic per-level strength)
-  const baseStrength = 0.05 * source.buildLevel; // 5% per build level
+  const { decayPerSpace, stackCap, basePctPerTier } = build.halo;
+  const tierIndex = tierData ? build.tiers.indexOf(tierData) : 0;
+  const radius = tierData?.haloRadius || 1;
+  const baseStrength = basePctPerTier[tierIndex] || 0.05;
 
   for (let dist = 1; dist <= radius; dist++) {
     const strength = baseStrength * Math.pow(1 - decayPerSpace, dist - 1);
-    if (strength <= 0) break;
+    if (strength <= 0.001) break;
 
     for (const neighbor of [sourceIndex - dist, sourceIndex + dist]) {
       if (neighbor < 0 || neighbor >= state.board.length) continue;
       if (state.board[neighbor].borough !== source.borough) continue;
       const sp = state.board[neighbor];
       sp.haloBonus = Math.min(stackCap, sp.haloBonus + strength);
-      sp.haloBonus = Math.round(sp.haloBonus * 1000) / 1000; // avoid float drift
+      sp.haloBonus = Math.round(sp.haloBonus * 1000) / 1000;
     }
   }
 }
@@ -172,15 +312,16 @@ export function expandAnchor(state, playerId, index) {
   };
 }
 
-/** Effective rent for a space, applying build level, halo bonus, and anchor multiplier. */
+/** Effective rent for a space, applying building type multiplier, halo bonus, and anchors. */
 export function effectiveRent(space) {
   if (space.anchorType) {
     const { rentMultiplierByLevel } = CONFIG.anchors;
     const mult = rentMultiplierByLevel[space.anchorLevel] ?? rentMultiplierByLevel[0];
     return Math.round(space.baseRent * mult * (1 + space.haloBonus));
   }
-  const levelMult = 1 + Math.max(0, space.buildLevel); // each level adds 1x base rent
-  return Math.round(space.baseRent * levelMult * (1 + space.haloBonus));
+  // use the building's rent multiplier if set, otherwise fallback to build level
+  const mult = space.rentMultiplier || (1 + Math.max(0, space.buildLevel));
+  return Math.round(space.baseRent * mult * (1 + space.haloBonus));
 }
 
 /**

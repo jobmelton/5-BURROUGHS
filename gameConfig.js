@@ -47,20 +47,75 @@ export const CONFIG = {
     demoCost: 0.30,            // demo-and-rebuild costs 30% of price before rebuild
   },
 
-  // ---- Build ladder (contiguity by borough) --------------------------------
+  // ---- Building tiers (by contiguous lots owned) ---------------------------
+  // Each tier unlocks bigger builds with higher rent and ROI.
+  // Cost is a multiplier on the lot's base price. Rent mult replaces base rent.
+  // Halo radius increases with tier — development lifts the whole neighborhood.
   build: {
-    // lots of contiguous ownership required to build, per borough (1..5)
-    contiguityRequired: [1, 2, 3, 4, 5],
-    maxBuildLevel: 5,          // houses -> up to hotels; anchor handled separately
-    // value halo: a build raises neighboring lots' value/rent
-    halo: {
-      radius: 2,               // affects lots within N spaces
-      strengthByBuild: {       // % rent/value bump at the source
-        house: 0.05, store: 0.10, condo: 0.12, park: 0.15,
-        golf: 0.20, stadium: 0.30, casino: 0.25,
+    tiers: [
+      {
+        contiguous: 1,
+        label: 'Tier 1 — Single Lot',
+        options: [
+          { type: 'house',        label: 'House',          costMult: 0.50, rentMult: 2.0,  roi: 0.10 },
+          { type: 'cornerStore',  label: 'Corner Store',   costMult: 0.60, rentMult: 2.2,  roi: 0.13 },
+          { type: 'restaurant',   label: 'Restaurant',     costMult: 0.70, rentMult: 2.5,  roi: 0.15 },
+        ],
+        haloRadius: 1,
       },
-      decayPerSpace: 0.4,      // bump falls 40% per space of distance
-      stackCap: 0.6,           // total halo bump on any lot capped at +60%
+      {
+        contiguous: 2,
+        label: 'Tier 2 — Two Lots',
+        options: [
+          { type: 'multifamily',  label: 'Multifamily',    costMult: 1.00, rentMult: 3.0,  roi: 0.25 },
+          { type: 'stripMall',    label: 'Strip Mall',     costMult: 1.20, rentMult: 3.5,  roi: 0.30 },
+          { type: 'condos',       label: 'Condos',         costMult: 1.50, rentMult: 4.0,  roi: 0.35 },
+        ],
+        haloRadius: 2,
+      },
+      {
+        contiguous: 3,
+        label: 'Tier 3 — Three Lots',
+        options: [
+          { type: 'aptComplex',   label: 'Apartment Complex', costMult: 2.00, rentMult: 5.0,  roi: 0.40 },
+          { type: 'autoDealer',   label: 'Auto Dealership',   costMult: 2.20, rentMult: 5.5,  roi: 0.48 },
+          { type: 'miniMall',     label: 'Mini Mall',         costMult: 2.50, rentMult: 6.0,  roi: 0.55 },
+        ],
+        haloRadius: 3,
+      },
+      {
+        contiguous: 4,
+        label: 'Tier 4 — Four Lots',
+        options: [
+          { type: 'skyriseRetail',  label: 'Skyrise Mixed-Use',  costMult: 3.00, rentMult: 8.0,   roi: 0.60 },
+          { type: 'retailTower',    label: 'Retail Tower',       costMult: 3.50, rentMult: 9.0,   roi: 0.68 },
+          { type: 'residentialTower', label: 'Residential Tower', costMult: 4.00, rentMult: 10.0,  roi: 0.75 },
+        ],
+        haloRadius: 4,
+      },
+      {
+        contiguous: 5,
+        label: 'Tier 5 — Five Lots',
+        options: [
+          { type: 'casino',       label: 'Casino',         costMult: 5.00, rentMult: 15.0, roi: 0.85 },
+        ],
+        haloRadius: 5,
+      },
+      {
+        contiguous: 6,
+        label: 'Tier 6 — Six+ Lots',
+        options: [
+          { type: 'stadium',      label: 'Stadium',        costMult: 7.00, rentMult: 20.0, roi: 0.95 },
+          { type: 'arena',        label: 'Arena',          costMult: 8.00, rentMult: 25.0, roi: 1.00 },
+        ],
+        haloRadius: 6,
+      },
+    ],
+    demoCost: 0.30,              // demo surcharge for abandoned properties (fraction of price)
+    halo: {
+      decayPerSpace: 0.25,       // halo decays 25% per space of distance (gentler for bigger builds)
+      stackCap: 1.50,            // total halo on any lot capped at +150% (allows cheap boroughs to flip)
+      basePctPerTier: [0.05, 0.10, 0.15, 0.20, 0.30, 0.40], // halo strength per tier (% of base rent)
     },
   },
 

@@ -51,6 +51,8 @@ export function buildBoard() {
         haloBonus: 0,
         partnership: null,
         mobOwnerId: null,
+        buildingType: null,
+        rentMultiplier: null,
       });
       index++;
     });
