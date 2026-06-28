@@ -142,7 +142,43 @@ app.get('/api/me', requireAuth, (req, res) => {
 
 // ---- Game Routes -----------------------------------------------------------
 app.get('/api/games', requireAuth, (req, res) => {
-  res.json(db.listGames());
+  sweepGames(); // clean up finished/abandoned games whenever the lobby loads
+  const games = Object.values(db.getGames()).map(g => {
+    const mine = Object.values(g.players || {}).some(p => p._email === req.userEmail);
+    return {
+      gameId: g.gameId, status: g.status,
+      playerCount: Object.keys(g.players || {}).length,
+      turn: g._turnNumber || 0,
+      mine,                                  // is the requester in this game (can resume)
+      joinable: g.status === 'waiting' && !mine,
+      winner: g._winner || null,
+    };
+  });
+  res.json(games);
+});
+
+// Persistent leaderboard (survives game cleanup).
+app.get('/api/leaderboard', (req, res) => {
+  const lb = db.getLeaderboard();
+  const players = Object.values(lb.players || {})
+    .sort((a, b) => b.wins - a.wins || b.bestNetWorth - a.bestNetWorth)
+    .slice(0, 20);
+  const recent = (lb.games || []).slice(0, 10).map(g => ({
+    winner: g.winner, reason: g.reason, finishedAt: g.finishedAt, turns: g.turns,
+    top: (g.standings || []).slice(0, 3).map(s => ({ name: s.name, netWorth: s.netWorth, isBot: s.isBot })),
+  }));
+  res.json({ players, recent });
+});
+
+// Manually delete/abandon a game you're in (records it if it had real play).
+app.post('/api/games/:id/delete', requireAuth, (req, res) => {
+  const state = db.getGame(req.params.id);
+  if (!state) return res.status(404).json({ error: 'Game not found' });
+  const mine = Object.values(state.players || {}).some(p => p._email === req.userEmail);
+  if (!mine) return res.status(403).json({ error: 'Not your game' });
+  if (state.status === 'ongoing' && (state._turnNumber || 0) >= 2) finalizeGame(state, 'abandoned');
+  db.deleteGame(state.gameId);
+  res.json({ ok: true });
 });
 
 app.post('/api/games', requireAuth, (req, res) => {
@@ -158,7 +194,7 @@ app.post('/api/games', requireAuth, (req, res) => {
     cleanCityMeter: 1, godfatherId: null,
     notifications: [], strikeBoroughs: {}, codeViolations: {},
     _turnNumber: 0, _currentPlayerIdx: 0, _playerOrder: [],
-    _createdAt: Date.now(), _startedAt: null,
+    _createdAt: Date.now(), _startedAt: null, _lastActivityAt: Date.now(),
     status: 'waiting',
   };
 
@@ -288,6 +324,7 @@ app.post('/api/games/:id/roll', requireAuth, (req, res) => {
   const result = executeRoll(state, myPlayer);
   myPlayer.status.rolledThisTurn = true;
 
+  state._lastActivityAt = Date.now();
   db.saveGame(state.gameId, state);
   broadcast(state, { type: 'turn_taken', data: result });
 
@@ -304,6 +341,8 @@ app.post('/api/games/:id/action', requireAuth, (req, res) => {
   const { action, params } = req.body;
   const result = executeAction(state, myPlayer, action, params || {});
 
+  state._lastActivityAt = Date.now();
+  checkGameOver(state);          // a build/buy could push net worth past the win target
   db.saveGame(state.gameId, state);
   broadcast(state, { type: 'action_taken', data: { player: myPlayer.name, ...result } });
 
@@ -330,6 +369,8 @@ app.post('/api/games/:id/endturn', requireAuth, (req, res) => {
     advanceTurn(state);
   }
 
+  state._lastActivityAt = Date.now();
+  checkGameOver(state);          // round cap / wealth target -> finalize + leaderboard
   db.saveGame(state.gameId, state);
 
   const nextId = state._playerOrder[state._currentPlayerIdx];
@@ -540,6 +581,62 @@ function updateNetWorth(state, player) {
   const propValue = player.propertyIds.reduce((s, i) => s + state.board[i].basePrice * (state.board[i].rentMultiplier || 1), 0);
   player.netWorth = player.cash + propValue;
 }
+
+// ---- Game lifecycle: completion, abandonment, leaderboard ------------------
+// Record final standings to the leaderboard and mark the game finished.
+function finalizeGame(state, reason) {
+  if (state.status === 'finished') return;
+  const standings = Object.values(state.players).map(p => ({
+    name: p.name, email: p._email || null, isBot: p.isBot,
+    netWorth: Math.round(p.netWorth || 0), cash: p.cash,
+  })).sort((a, b) => b.netWorth - a.netWorth);
+  const winner = standings[0];
+  state.status = 'finished';
+  state._finishedAt = Date.now();
+  state._finishReason = reason;
+  state._winner = winner ? winner.name : null;
+  db.recordGameResult({
+    gameId: state.gameId, finishedAt: state._finishedAt, reason,
+    turns: state._turnNumber || 0, standings,
+    winner: winner ? winner.name : null, winnerEmail: winner ? winner.email : null,
+  });
+  db.saveGame(state.gameId, state);
+  broadcast(state, { type: 'game_over', data: { reason, winner: state._winner } });
+}
+
+// True if the game has reached its end condition (round cap or wealth target).
+function checkGameOver(state) {
+  if (state.status !== 'ongoing') return false;
+  const { lifecycle } = CONFIG;
+  if ((state._turnNumber || 0) > lifecycle.maxRounds) { finalizeGame(state, 'completed'); return true; }
+  if (Object.values(state.players).some(p => (p.netWorth || 0) >= lifecycle.winNetWorth)) { finalizeGame(state, 'completed'); return true; }
+  return false;
+}
+
+// Sweep all games: finalize completed ones, archive+delete abandoned ones,
+// and delete finished games past their retention window. Keeps the lobby clean.
+function sweepGames() {
+  const now = Date.now();
+  const { lifecycle } = CONFIG;
+  const abandonMs = lifecycle.abandonHours * 3600e3;
+  const retainMs = lifecycle.finishedRetentionHours * 3600e3;
+  for (const g of Object.values(db.getGames())) {
+    const last = g._lastActivityAt || g._startedAt || g._createdAt || 0;
+    if (g.status === 'finished') {
+      if (now - (g._finishedAt || last) > retainMs) db.deleteGame(g.gameId);
+    } else if (g.status === 'ongoing') {
+      if (checkGameOver(g)) continue;                       // hit round/wealth cap
+      if (now - last > abandonMs) {
+        if ((g._turnNumber || 0) >= 2) finalizeGame(g, 'abandoned'); // had real play -> record it
+        else db.deleteGame(g.gameId);                       // barely started -> just drop
+      }
+    } else if (g.status === 'waiting') {
+      if (now - last > abandonMs) db.deleteGame(g.gameId);  // never started
+    }
+  }
+}
+// Periodic sweep (also runs on lobby load) so games don't pile up.
+setInterval(sweepGames, 30 * 60 * 1000);
 
 // ---- Serve frontend --------------------------------------------------------
 const noCacheHtml = { headers: { 'Cache-Control': 'no-cache' } };

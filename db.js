@@ -70,3 +70,25 @@ export function listGames() {
     createdAt: g._createdAt,
   }));
 }
+
+// ---- Leaderboard (persists across game deletion) ---------------------------
+function blankLeaderboard() { return { games: [], players: {} }; }
+export function getLeaderboard() {
+  const lb = load('leaderboard');
+  return (lb && lb.games && lb.players) ? lb : blankLeaderboard();
+}
+export function recordGameResult(result) {
+  const lb = getLeaderboard();
+  lb.games.unshift(result);
+  if (lb.games.length > 100) lb.games.length = 100; // keep recent history
+  for (const s of result.standings || []) {
+    if (s.isBot || !s.email) continue;             // humans only, keyed by email
+    const p = lb.players[s.email] || { name: s.name, email: s.email, games: 0, wins: 0, bestNetWorth: 0 };
+    p.name = s.name;
+    p.games += 1;
+    if (result.winnerEmail && result.winnerEmail === s.email) p.wins += 1;
+    p.bestNetWorth = Math.max(p.bestNetWorth, Math.round(s.netWorth || 0));
+    lb.players[s.email] = p;
+  }
+  save('leaderboard', lb);
+}

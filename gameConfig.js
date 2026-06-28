@@ -316,4 +316,14 @@ export const CONFIG = {
     godfatherTributePerPayday: 25,
     payoutSplits: [0.50, 0.30, 0.20],  // top 3 split the bounty pool
   },
+
+  // ---- Game lifecycle / cleanup -------------------------------------------
+  // Games end (and get recorded to the leaderboard) when they hit a round cap or
+  // someone reaches the wealth target; idle games are swept so the lobby stays clean.
+  lifecycle: {
+    maxRounds: 30,                 // game completes after this many full rounds
+    winNetWorth: 25000,            // ...or as soon as a player reaches this net worth
+    abandonHours: 24,              // ongoing/waiting games idle this long are cleaned up
+    finishedRetentionHours: 12,    // keep finished games this long (to view results) then delete
+  },
 };

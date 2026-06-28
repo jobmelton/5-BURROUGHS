@@ -120,10 +120,18 @@
         Create New Game
       </button>
 
-      <!-- Open Games -->
-      <div class="bg-card rounded-lg border border-gray-700/40 p-5">
-        <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-400 mb-4">Open Games</h2>
+      <!-- Games -->
+      <div class="bg-card rounded-lg border border-gray-700/40 p-5 mb-6">
+        <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-400 mb-4">Games</h2>
         <div id="games-list">
+          <p class="text-gray-600 text-sm">Loading...</p>
+        </div>
+      </div>
+
+      <!-- Leaderboard -->
+      <div class="bg-card rounded-lg border border-gray-700/40 p-5">
+        <h2 class="text-sm font-semibold uppercase tracking-wide text-gold mb-4">🏆 Leaderboard</h2>
+        <div id="leaderboard">
           <p class="text-gray-600 text-sm">Loading...</p>
         </div>
       </div>
@@ -263,6 +271,23 @@
       }
     }
 
+    function gameRow(game) {
+      const status = game.status === 'ongoing' ? 'In progress' : (game.status === 'finished' ? `Finished — ${game.winner || '?'} won` : 'Waiting');
+      const right = game.mine
+        ? `<div class="flex gap-2">
+             <button onclick="location.href='/game/${game.gameId}'" class="text-xs font-semibold text-dark bg-gold px-3 py-1.5 rounded hover:brightness-110 uppercase tracking-wide">Resume</button>
+             <button onclick="handleDeleteGame('${game.gameId}')" class="text-xs text-gray-400 border border-gray-600 rounded px-3 py-1.5 hover:text-red-400 hover:border-red-500">Delete</button>
+           </div>`
+        : (game.joinable
+            ? `<button onclick="handleJoinGame('${game.gameId}')" class="text-xs font-semibold text-dark bg-gold px-4 py-1.5 rounded hover:brightness-110 uppercase tracking-wide">Join</button>`
+            : `<span class="text-xs text-gray-600">${status}</span>`);
+      return `<div class="flex items-center justify-between py-3 border-b border-gray-700/30 last:border-0">
+          <div>
+            <p class="text-sm font-medium text-white">Game #${game.gameId} <span class="text-gray-500 text-xs">· ${status}</span></p>
+            <p class="text-xs text-gray-500">${game.playerCount || 0} player(s)${game.turn ? ' · round ' + game.turn : ''}</p>
+          </div>${right}</div>`;
+    }
+
     async function loadGames() {
       const container = document.getElementById('games-list');
       try {
@@ -270,25 +295,47 @@
         const games = await res.json();
         if (!res.ok) throw new Error('Failed to load games');
 
-        if (!games.length) {
-          container.innerHTML = '<p class="text-gray-600 text-sm">No open games. Create one above.</p>';
-          return;
-        }
-
-        container.innerHTML = games.map(game => `
-          <div class="flex items-center justify-between py-3 border-b border-gray-700/30 last:border-0">
-            <div>
-              <p class="text-sm font-medium text-white">Game #${game.id}</p>
-              <p class="text-xs text-gray-500">${game.playerCount || game.players?.length || '?'} player(s)</p>
-            </div>
-            <button onclick="handleJoinGame('${game.id}')"
-              class="text-xs font-semibold text-dark bg-gold px-4 py-1.5 rounded hover:brightness-110 transition uppercase tracking-wide">
-              Join
-            </button>
-          </div>
-        `).join('');
+        const mine = games.filter(g => g.mine);
+        const open = games.filter(g => g.joinable);
+        let html = '';
+        if (mine.length) html += '<p class="text-xs uppercase tracking-wider text-gray-500 mb-1">Your games</p>' + mine.map(gameRow).join('');
+        if (open.length) html += '<p class="text-xs uppercase tracking-wider text-gray-500 mt-3 mb-1">Open to join</p>' + open.map(gameRow).join('');
+        container.innerHTML = html || '<p class="text-gray-600 text-sm">No games yet. Create one above.</p>';
       } catch (_) {
         container.innerHTML = '<p class="text-red-400 text-sm">Could not load games.</p>';
+      }
+    }
+
+    async function handleDeleteGame(gameId) {
+      if (!confirm('Delete this game? (It will be recorded to the leaderboard if it had real play.)')) return;
+      await fetch('/api/games/' + gameId + '/delete', { method: 'POST', credentials: 'same-origin' });
+      loadGames(); loadLeaderboard();
+    }
+
+    async function loadLeaderboard() {
+      const el = document.getElementById('leaderboard');
+      try {
+        const res = await fetch('/api/leaderboard', { credentials: 'same-origin' });
+        const { players, recent } = await res.json();
+        let html = '';
+        if (!players.length) {
+          html = '<p class="text-gray-600 text-sm">No finished games yet. Win one!</p>';
+        } else {
+          html = '<table class="w-full text-sm"><thead><tr class="text-gray-500 text-xs uppercase"><th class="text-left pb-1">Player</th><th class="text-right">Wins</th><th class="text-right">Games</th><th class="text-right">Best NW</th></tr></thead><tbody>'
+            + players.map((p, i) => `<tr class="border-t border-gray-700/30">
+                <td class="py-1.5 ${i === 0 ? 'text-gold font-semibold' : 'text-white'}">${i === 0 ? '👑 ' : ''}${p.name}</td>
+                <td class="text-right text-gold">${p.wins}</td>
+                <td class="text-right text-gray-400">${p.games}</td>
+                <td class="text-right text-green-400">$${(p.bestNetWorth || 0).toLocaleString()}</td>
+              </tr>`).join('') + '</tbody></table>';
+        }
+        if (recent && recent.length) {
+          html += '<p class="text-xs uppercase tracking-wider text-gray-500 mt-4 mb-1">Recent results</p>'
+            + recent.map(r => `<p class="text-xs text-gray-400 py-0.5">🏁 <span class="text-white">${r.winner || '?'}</span> won (${r.reason}, ${r.turns} rounds)</p>`).join('');
+        }
+        el.innerHTML = html;
+      } catch (_) {
+        el.innerHTML = '<p class="text-red-400 text-sm">Could not load leaderboard.</p>';
       }
     }
 
@@ -303,8 +350,9 @@
       document.getElementById('lobby-panel').classList.remove('hidden');
       document.getElementById('player-name').textContent = currentUser.name || currentUser.email;
       loadGames();
+      loadLeaderboard();
       if (refreshInterval) clearInterval(refreshInterval);
-      refreshInterval = setInterval(loadGames, 5000);
+      refreshInterval = setInterval(() => { loadGames(); loadLeaderboard(); }, 5000);
     }
 
     // --- Init: check session ---
