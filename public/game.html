@@ -923,14 +923,12 @@ const TURN_ENDING_ACTIONS = ['buy', 'pass', 'partner', 'flip', 'mob_deal'];
 
 async function doAction(action, params = {}) {
   const result = await api('POST', `/api/games/${GAME_ID}/action`, { action, params });
-  if (result.error) {
-    addFeedEntry(`Error: ${result.error}`);
-  } else {
-    addFeedEntry(result.description || `${action} completed`);
-  }
+  // Action failures come back as { ok:false, description } (or { error } for HTTP errors).
+  const failed = !!result.error || result.ok === false;
+  addFeedEntry(failed ? `Couldn't ${action}: ${result.error || result.description}` : (result.description || `${action} completed`));
   closeLotPopup();
-  // Auto-end the turn after a committing action; otherwise just refresh.
-  if (!result.error && hasRolled && TURN_ENDING_ACTIONS.includes(action)) {
+  // A successful committing action (buy/pass/...) auto-ends the turn. (Build/borrow don't.)
+  if (!failed && TURN_ENDING_ACTIONS.includes(action)) {
     await endTurn();
   } else {
     await refreshState();
