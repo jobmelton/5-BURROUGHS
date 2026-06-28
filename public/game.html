@@ -694,11 +694,27 @@ function inspectLot(index) {
     ${sp.partnership ? `<div class="flex justify-between"><span class="text-gray-400">Partnership</span><span class="text-purple-400">${sp.partnership.split}% split</span></div>` : ''}
   `;
 
-  // Actions for my buildable properties
+  // Build picker for my lots — available any time (works on mobile, where the
+  // right-sidebar Build list is on a separate tab).
   const actEl = document.getElementById('lotActions');
   actEl.innerHTML = '';
-  if (sp.isMine && state.isMyTurn) {
-    actEl.innerHTML = `<button class="btn btn-gold btn-sm w-full" onclick="doAction('build',{spaceIndex:${sp.index}})">Build / Upgrade</button>`;
+  if (sp.isMine) {
+    const opts = sp.buildOptions || [];
+    if (opts.length === 0) {
+      actEl.innerHTML = `<div class="text-xs text-gray-500">Fully developed.</div>`;
+    } else if (opts[0].blocked) {
+      actEl.innerHTML = `<div class="text-xs text-gray-500">${opts[0].reason}</div>`;
+    } else {
+      actEl.innerHTML = `<div class="text-xs text-gold/80 uppercase tracking-wider mb-1">Build / Upgrade</div>`
+        + opts.map(o => {
+          const aff = o.affordable;
+          return `<button class="btn btn-sm w-full text-left text-white ${aff ? 'bg-emerald-800 hover:bg-emerald-700' : 'bg-amber-900 hover:bg-amber-800'} mb-1"
+            onclick="${aff ? `doAction('build',{spaceIndex:${sp.index},buildingType:'${o.type}'})` : `borrowAndBuild(${sp.index},'${o.type}',${o.cost})`}">
+            <span class="text-[11px] font-semibold">${o.label}</span>
+            <span class="float-right text-[11px] ${aff ? 'text-green-300' : 'text-amber-200'}">$${o.cost.toLocaleString()}${aff ? '' : ' · borrow'}</span>
+          </button>`;
+        }).join('');
+    }
   }
 
   document.getElementById('lotPopup').classList.remove('hidden');

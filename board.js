@@ -20,9 +20,9 @@ const BOROUGH_LAYOUT = [
   'vacantLot', 'abandonedStore', 'abandonedStripMall',
   'vacantLot', 'anchorSlot',                   // casino/stadium anchor
   'abandonedApartment', 'vacantLot', 'abandonedCondoTower',
-  'pitEntry',                                   // mid-borough pit entrance (was free parking)
+  'vacantLot',                                  // (was a pit entrance — now a buildable lot)
   'abandonedSkyrise',                          // premium lot — expensive but huge potential
-  'pitEntry', 'pitEntry', 'pitEntry',          // pit entrances (were free parking / tax / jail)
+  'vacantLot', 'pitEntry', 'abandonedStore',   // one pit entrance per borough (was 4) + extra lots
 ];
 
 /** base price for a space given its borough and its index within that borough */
