@@ -4,7 +4,9 @@
 // ===========================================================================
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 
-const DATA_DIR = './data';
+// DATA_DIR is env-configurable so a hosting platform (e.g. Railway) can point it
+// at a persistent volume; falls back to a local ./data folder for dev.
+const DATA_DIR = process.env.DATA_DIR || './data';
 if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
 
 function filePath(name) { return `${DATA_DIR}/${name}.json`; }
