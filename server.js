@@ -653,6 +653,9 @@ app.use((err, req, res, next) => {
 });
 
 // ---- Start -----------------------------------------------------------------
+// Hydrate the db cache from the durable backend (Supabase in prod, JSON files
+// locally) BEFORE accepting requests, so no request ever sees an empty cache.
+await db.init();
 server.listen(PORT, () => {
   console.log(`5 Boroughs server running on http://localhost:${PORT}`);
 });

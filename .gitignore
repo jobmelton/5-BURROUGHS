@@ -3,3 +3,5 @@ node_modules/
 savegame.json
 test_save.json
 data/
+.env
+.env.local
