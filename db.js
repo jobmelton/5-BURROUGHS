@@ -3,19 +3,26 @@
 // ---------------------------------------------------------------------------
 // Runtime source of truth is an in-memory cache (fast, synchronous — no DB
 // round-trip on every WebSocket state push). Durable storage is pluggable:
-//   • Supabase (Postgres)  — used in production when SUPABASE_URL + key are set.
-//   • JSON files (./data)  — automatic fallback for local dev & tests (offline).
+//   • Postgres (Supabase) — used when DATABASE_URL is set (production).
+//   • JSON files (./data) — automatic fallback for local dev & tests (offline).
+//
+// SCHEMA IS AUTOMATIC: on startup, every migrations/*.sql not yet applied runs
+// itself (tracked in schema_migrations). Never hand-paste SQL again — just add a
+// new numbered file in migrations/ and it applies on the next deploy.
+//
 // Reads hit the cache; writes update the cache AND write through to the backend.
-// Call `await init()` once at server startup to hydrate the cache.
+// Call `await init()` once at server startup to migrate + hydrate the cache.
 // ===========================================================================
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
+const __dirname = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.DATA_DIR || './data';
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY;
-const USE_SUPABASE = Boolean(SUPABASE_URL && SUPABASE_KEY);
+const DATABASE_URL = process.env.DATABASE_URL;
+const USE_PG = Boolean(DATABASE_URL);
 
-let supabase = null;
+let pool = null;
 
 // ---- In-memory cache (runtime source of truth) -----------------------------
 const cache = {
@@ -25,8 +32,8 @@ const cache = {
   leaderboard: { games: [], players: {} },
 };
 
-function logErr(ctx) {
-  return (res) => { if (res?.error) console.error(`[db] ${ctx}:`, res.error.message || res.error); };
+function pgErr(ctx) {
+  return (err) => console.error(`[db] ${ctx}:`, err?.message || err);
 }
 
 // ---- File backend (dev fallback) -------------------------------------------
@@ -41,57 +48,102 @@ function saveFile(name, data) {
   writeFileSync(filePath(name), JSON.stringify(data, null, 2), 'utf-8');
 }
 
-// ---- Startup: hydrate the cache from the durable backend -------------------
+// ---- Auto-migrations -------------------------------------------------------
+// Runs any migrations/*.sql whose filename isn't recorded in schema_migrations.
+async function runMigrations() {
+  await pool.query(
+    'create table if not exists schema_migrations (version text primary key, applied_at timestamptz default now())'
+  );
+  const done = new Set((await pool.query('select version from schema_migrations')).rows.map(r => r.version));
+  const dir = join(__dirname, 'migrations');
+  const files = existsSync(dir) ? readdirSync(dir).filter(f => f.endsWith('.sql')).sort() : [];
+  for (const file of files) {
+    if (done.has(file)) continue;
+    const sql = readFileSync(join(dir, file), 'utf-8');
+    const client = await pool.connect();
+    try {
+      await client.query('begin');
+      await client.query(sql);
+      await client.query('insert into schema_migrations (version) values ($1)', [file]);
+      await client.query('commit');
+      console.log(`[db] migration applied: ${file}`);
+    } catch (e) {
+      await client.query('rollback');
+      throw new Error(`Migration ${file} failed: ${e.message}`);
+    } finally {
+      client.release();
+    }
+  }
+}
+
+// ---- Startup: migrate + hydrate the cache ----------------------------------
 export async function init() {
-  if (USE_SUPABASE) {
-    const { createClient } = await import('@supabase/supabase-js');
-    supabase = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { persistSession: false } });
+  if (USE_PG) {
+    const pg = await import('pg');
+    pool = new pg.default.Pool({ connectionString: DATABASE_URL, ssl: { rejectUnauthorized: false } });
+    await runMigrations();
     const [users, sessions, games, lb] = await Promise.all([
-      supabase.from('users').select('*'),
-      supabase.from('sessions').select('*'),
-      supabase.from('games').select('*'),
-      supabase.from('leaderboard').select('*').eq('id', 'main').maybeSingle(),
+      pool.query('select email, name, password_hash, created_at from users'),
+      pool.query('select session_id, email, created_at from sessions'),
+      pool.query('select game_id, state from games'),
+      pool.query("select data from leaderboard where id = 'main'"),
     ]);
-    for (const r of users.data || []) cache.users[r.email] = { email: r.email, name: r.name, passwordHash: r.password_hash, createdAt: Number(r.created_at) };
-    for (const r of sessions.data || []) cache.sessions[r.session_id] = { email: r.email, createdAt: Number(r.created_at) };
-    for (const r of games.data || []) cache.games[r.game_id] = r.state;
-    if (lb.data?.data) cache.leaderboard = lb.data.data;
-    console.log(`[db] Supabase backend ready — ${Object.keys(cache.games).length} games, ${Object.keys(cache.users).length} users`);
+    for (const r of users.rows) cache.users[r.email] = { email: r.email, name: r.name, passwordHash: r.password_hash, createdAt: Number(r.created_at) };
+    for (const r of sessions.rows) cache.sessions[r.session_id] = { email: r.email, createdAt: Number(r.created_at) };
+    for (const r of games.rows) cache.games[r.game_id] = r.state;
+    if (lb.rows[0]?.data) cache.leaderboard = lb.rows[0].data;
+    console.log(`[db] Postgres backend ready — ${Object.keys(cache.games).length} games, ${Object.keys(cache.users).length} users`);
   } else {
     cache.users = loadFile('users', {});
     cache.sessions = loadFile('sessions', {});
     cache.games = loadFile('games', {});
     cache.leaderboard = loadFile('leaderboard', { games: [], players: {} });
-    console.log(`[db] File backend ready (${DATA_DIR})`);
+    console.log(`[db] File backend ready (${DATA_DIR}) — no DATABASE_URL set`);
   }
 }
 
 // ---- Write-through persistence (fire-and-forget; cache already updated) -----
 function persistUser(email) {
-  if (!USE_SUPABASE) return saveFile('users', cache.users);
+  if (!USE_PG) return saveFile('users', cache.users);
   const u = cache.users[email];
-  supabase.from('users').upsert({ email: u.email, name: u.name, password_hash: u.passwordHash, created_at: u.createdAt }).then(logErr('upsert user'));
+  pool.query(
+    `insert into users (email, name, password_hash, created_at) values ($1,$2,$3,$4)
+     on conflict (email) do update set name = excluded.name, password_hash = excluded.password_hash`,
+    [u.email, u.name, u.passwordHash, u.createdAt]
+  ).catch(pgErr('upsert user'));
 }
 function persistSession(sessionId) {
-  if (!USE_SUPABASE) return saveFile('sessions', cache.sessions);
+  if (!USE_PG) return saveFile('sessions', cache.sessions);
   const s = cache.sessions[sessionId];
-  supabase.from('sessions').upsert({ session_id: sessionId, email: s.email, created_at: s.createdAt }).then(logErr('upsert session'));
+  pool.query(
+    `insert into sessions (session_id, email, created_at) values ($1,$2,$3)
+     on conflict (session_id) do update set email = excluded.email`,
+    [sessionId, s.email, s.createdAt]
+  ).catch(pgErr('upsert session'));
 }
 function removeSession(sessionId) {
-  if (!USE_SUPABASE) return saveFile('sessions', cache.sessions);
-  supabase.from('sessions').delete().eq('session_id', sessionId).then(logErr('delete session'));
+  if (!USE_PG) return saveFile('sessions', cache.sessions);
+  pool.query('delete from sessions where session_id = $1', [sessionId]).catch(pgErr('delete session'));
 }
 function persistGame(gameId) {
-  if (!USE_SUPABASE) return saveFile('games', cache.games);
-  supabase.from('games').upsert({ game_id: gameId, state: cache.games[gameId], updated_at: Date.now() }).then(logErr('upsert game'));
+  if (!USE_PG) return saveFile('games', cache.games);
+  pool.query(
+    `insert into games (game_id, state, updated_at) values ($1, $2::jsonb, $3)
+     on conflict (game_id) do update set state = excluded.state, updated_at = excluded.updated_at`,
+    [gameId, JSON.stringify(cache.games[gameId]), Date.now()]
+  ).catch(pgErr('upsert game'));
 }
 function removeGame(gameId) {
-  if (!USE_SUPABASE) return saveFile('games', cache.games);
-  supabase.from('games').delete().eq('game_id', gameId).then(logErr('delete game'));
+  if (!USE_PG) return saveFile('games', cache.games);
+  pool.query('delete from games where game_id = $1', [gameId]).catch(pgErr('delete game'));
 }
 function persistLeaderboard() {
-  if (!USE_SUPABASE) return saveFile('leaderboard', cache.leaderboard);
-  supabase.from('leaderboard').upsert({ id: 'main', data: cache.leaderboard }).then(logErr('upsert leaderboard'));
+  if (!USE_PG) return saveFile('leaderboard', cache.leaderboard);
+  pool.query(
+    `insert into leaderboard (id, data) values ('main', $1::jsonb)
+     on conflict (id) do update set data = excluded.data`,
+    [JSON.stringify(cache.leaderboard)]
+  ).catch(pgErr('upsert leaderboard'));
 }
 
 // ---- Users -----------------------------------------------------------------
